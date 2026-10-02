@@ -1,9 +1,12 @@
 # Ward — bot de League of Legends para Discord
 
-Bot que qualquer servidor pode adicionar (não precisa mexer em código):
-avisa quando sai patch novo do LoL e mostra a rotação semanal de campeões
-grátis. Cada servidor configura sozinho, pelo **dashboard web**, em qual
-canal o bot posta.
+Bot que qualquer servidor pode adicionar (não precisa mexer em código). Três
+avisos, cada um com seu canal, configurados pelo **dashboard web**:
+
+- **Patch novo**: a versão e o resumo oficial traduzido, quando sai patch.
+- **Notícias oficiais**: CBLOL e outros esports, skins, atualizações do jogo
+  e comunicados — direto do site da Riot em português.
+- **Rotação semanal**: os campeões grátis da semana, com o ícone de cada um.
 
 Comandos: `/patch`, `/rotacao`, `/dashboard` (manda o link de configuração
 daquele servidor).
@@ -17,27 +20,31 @@ precisa de uma **Production Key** da Riot (pedido de aprovação deles). Uma
 chave pessoal ("Personal API Key") funciona, mas **expira sozinha a cada
 24h** e precisa ser renovada à mão — por isso o v1 só usa:
 
-- **Alerta de patch**: não precisa de chave nenhuma (Data Dragon é público). A
-  mensagem traz quais campeões tiveram atributos alterados (comparando os
-  dados da versão antiga com a nova) e um link pra listagem oficial de notas
-  — a Riot não publica o texto das notas em nenhuma API, e tentar adivinhar a
-  URL do artigo de cada patch se mostrou não confiável (deu 404 nos testes).
-- **Rotação semanal**: precisa de chave, mas se a chave vencer o recurso só
+- **Alerta de patch**: não precisa de chave nenhuma (Data Dragon é público).
+- **Notícias**: também sem chave — vêm do site oficial em pt-BR.
+- **Rotação semanal**: precisa de chave, mas se a chave falhar o recurso só
   fica quieto (não quebra o bot, não spama erro) até alguém renovar.
+
+Uma pegadinha descoberta na marra: a numeração pública do patch não é a mesma
+do Data Dragon (o "16.19" de lá é o "26.19" do site), e isso não está
+documentado em lugar nenhum — ver `urlNotasPatch` em `src/riot.js`.
 
 ## Arquitetura
 
 Um único Cloudflare Worker + banco D1, sem framework, sem build:
 
 ```
-src/index.js      # rotas HTTP + cron (patch/rotação)
+src/index.js      # rotas HTTP + cron (patch / notícias / rotação)
 src/discord.js    # verificação de assinatura + chamadas REST da Discord
 src/oauth.js      # "Entrar com Discord" do dashboard (sessão em cookie assinado)
 src/riot.js       # versão do jogo (Data Dragon) + rotação de campeões
+src/noticias.js   # notícias oficiais do site da Riot em pt-BR
+src/traducao.js   # tradução do resumo do patch (Workers AI, com reservas)
 src/comandos.js   # /patch, /rotacao, /dashboard
-src/paginas.js    # HTML do dashboard
+src/paginas.js    # HTML do site e do dashboard
 src/db.js         # consultas ao D1
 schema.sql        # tabelas do D1
+migracoes/        # alterações de schema aplicadas depois, uma por arquivo
 ```
 
 O dashboard mora no mesmo Worker (não é um site separado): `/` é a página
@@ -47,9 +54,21 @@ lista os servidores que a pessoa administra e onde o Ward já está,
 servidor. Nele também dá pra:
 - **Postar agora**: manda o patch/rotação atual pro canal escolhido na hora,
   sem esperar o cron (bom pra testar o canal antes de salvar).
-- **Horário fixo diário**: em vez de só avisar quando muda, posta a
-  informação atual todo dia num horário escolhido (fuso de Brasília). Fica
-  desligado por padrão (mantém o comportamento de "só avisa quando muda").
+- **Horário fixo diário** (só na rotação): posta a lista atual todo dia num
+  horário escolhido, fuso de Brasília. Desligado por padrão. O patch e as
+  notícias não têm isso de propósito — como só mudam de vez em quando,
+  postar num horário fixo repetiria a mesma coisa.
+
+Cada aviso só sai quando há novidade de verdade: a versão do jogo mudou, a
+lista de campeões grátis mudou, ou saiu um artigo que ainda não foi anunciado.
+A rotação ainda apaga a mensagem anterior antes de postar a nova, pra não
+acumular lista velha no canal.
+
+Rotas de administração (protegidas pelo `SETUP_KEY`): `/admin/uso` mostra em
+quais servidores o bot está e quanto cada função é usada, `/admin/checar`
+força uma verificação (exige `?servidor=<id>`, pra um teste nunca postar em
+todos os servidores de uma vez) e `/admin/sincronizar` marca tudo como já
+anunciado sem postar nada.
 
 ## Colocar no ar (passo a passo)
 
