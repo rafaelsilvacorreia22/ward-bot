@@ -1,11 +1,11 @@
-# Ward — bot de League of Legends para Discord
+# "Ward" bot de League of Legends para Discord
 
 Bot que qualquer servidor pode adicionar (não precisa mexer em código). Três
 avisos, cada um com seu canal, configurados pelo **dashboard web**:
 
 - **Patch novo**: a versão e o resumo oficial traduzido, quando sai patch.
 - **Notícias oficiais**: CBLOL e outros esports, skins, atualizações do jogo
-  e comunicados — direto do site da Riot em português.
+  e comunicados direto do site da Riot em português.
 - **Rotação semanal**: os campeões grátis da semana, com o ícone de cada um.
 
 Comandos: `/patch`, `/rotacao`, `/dashboard` (manda o link de configuração
@@ -13,8 +13,7 @@ daquele servidor).
 
 ## Por que não tem contagem de jogadores nem elo/partida ao vivo
 
-Diferente dos bots de Steam (ARC Raiders, WARDOGS, HELLDIVERS 2), o LoL usa a
-**Riot Games API**, que não expõe contagem de jogadores online. E qualquer
+O LoL usa a **Riot Games API**, que não expõe contagem de jogadores online. E qualquer
 recurso que olhe dados de um jogador específico (elo, partida ao vivo)
 precisa de uma **Production Key** da Riot (pedido de aprovação deles). Uma
 chave pessoal ("Personal API Key") funciona, mas **expira sozinha a cada
@@ -24,10 +23,6 @@ chave pessoal ("Personal API Key") funciona, mas **expira sozinha a cada
 - **Notícias**: também sem chave — vêm do site oficial em pt-BR.
 - **Rotação semanal**: precisa de chave, mas se a chave falhar o recurso só
   fica quieto (não quebra o bot, não spama erro) até alguém renovar.
-
-Uma pegadinha descoberta na marra: a numeração pública do patch não é a mesma
-do Data Dragon (o "16.19" de lá é o "26.19" do site), e isso não está
-documentado em lugar nenhum — ver `urlNotasPatch` em `src/riot.js`.
 
 ## Arquitetura
 
