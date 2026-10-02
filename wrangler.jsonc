@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ward-bot",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-28",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "DISCORD_CLIENT_ID": "1554155800099037184",
+    "DISCORD_PUBLIC_KEY": "b965f17aab300a2c003fd8cdf4552751b50e5cd2a3002a9b49e3e6b7bc5b4b2b"
+  },
+  // A cada 15 minutos: confere se saiu patch novo do LoL (Data Dragon, sem
+  // chave) e se a rotação semanal de campeões grátis mudou (precisa da chave
+  // da Riot — ver README).
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "assets": {
+    "directory": "./public"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ward-bot",
+      "database_id": "30ae9568-3748-407c-b823-9c7a853324c7"
+    }
+  ]
+}
