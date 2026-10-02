@@ -260,6 +260,9 @@ function classificarFalha(err) {
 // bot ficar dias sem rodar, ele não despejar tudo de uma vez no canal.
 const MAXIMO_NOTICIAS_POR_RODADA = 3;
 
+// O controle do que já foi anunciado é por servidor: assim postar uma notícia
+// à mão num servidor não tira ela dos outros, e quem liga a função depois não
+// recebe um mês de notícias atrasadas de uma vez.
 async function checarNoticias(env, apenasGuild) {
   let noticias;
   try {
@@ -269,32 +272,39 @@ async function checarNoticias(env, apenasGuild) {
     return { erro: err.message };
   }
 
-  const jaPostadas = await urlsDeNoticiasPostadas(env);
-
-  // Primeira execução: marca tudo como visto sem postar, senão o canal
-  // receberia um mês inteiro de notícias de uma vez.
-  if (jaPostadas.size === 0) {
-    for (const noticia of noticias) await marcarNoticiaPostada(env, noticia.url);
-    return { primeiraVez: true, marcadas: noticias.length };
-  }
-
-  const novas = noticias.filter((n) => !jaPostadas.has(n.url)).slice(0, MAXIMO_NOTICIAS_POR_RODADA);
-  if (!novas.length) return { novas: 0 };
-
   const todos = await listarNoticiasAtiva(env);
-  const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
+  const alvos = (apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos).filter(
+    (c) => c.news_channel_id
+  );
 
-  for (const noticia of novas) {
-    await paraCadaServidor(alvos, env, (config) =>
-      config.news_channel_id
-        ? enviarMensagem(env, config.news_channel_id, { embeds: [embedDaNoticia(noticia)] })
-        : null
-    );
-    // Em teste não marca: senão a notícia nunca sairia nos outros servidores.
-    if (!apenasGuild) await marcarNoticiaPostada(env, noticia.url);
+  const resumo = { servidores: alvos.length, postadas: 0, estreantes: 0 };
+
+  for (const config of alvos) {
+    const jaPostadas = await urlsDeNoticiasPostadas(env, config.guild_id);
+
+    // Servidor estreando: marca tudo como visto sem postar nada.
+    if (jaPostadas.size === 0) {
+      for (const noticia of noticias) await marcarNoticiaPostada(env, config.guild_id, noticia.url);
+      resumo.estreantes++;
+      continue;
+    }
+
+    const novas = noticias
+      .filter((n) => !jaPostadas.has(n.url))
+      .slice(0, MAXIMO_NOTICIAS_POR_RODADA);
+
+    for (const noticia of novas) {
+      try {
+        await enviarMensagem(env, config.news_channel_id, { embeds: [embedDaNoticia(noticia)] });
+        await marcarNoticiaPostada(env, config.guild_id, noticia.url);
+        resumo.postadas++;
+      } catch (err) {
+        console.log(`Falha ao postar notícia em ${config.guild_id}:`, err.message);
+      }
+    }
   }
 
-  return { novas: novas.length, servidores: alvos.length, teste: Boolean(apenasGuild) };
+  return resumo;
 }
 
 // Marca o patch e a rotação atuais como "já anunciados", sem postar nada.
@@ -569,6 +579,53 @@ async function rotear(request, env, ctx) {
       });
     }
 
+    // Posta uma notícia escolhida na lista do painel. Só aceita URL que esteja
+    // de fato na lista atual do site oficial — sem isso, dava pra fazer o bot
+    // publicar qualquer link forjando o formulário.
+    const noticiaMatch = url.pathname.match(/^\/dashboard\/(\d+)\/postar-noticia$/);
+    if (noticiaMatch && request.method === "POST") {
+      const guildId = noticiaMatch[1];
+      const sessao = await pegarSessao(env, request);
+      if (!sessao) return paginaHtml("Entrar", precisaLogar());
+
+      const servidores = await servidoresDoUsuario(env, sessao);
+      if (!servidores.some((s) => s.id === guildId)) {
+        return new Response("Você não administra esse servidor (ou o Ward não está nele).", { status: 403 });
+      }
+
+      const dados = await request.formData();
+      const escolhida = dados.get("noticia_url");
+      const canalId = dados.get("news_channel_id");
+
+      let status = "noticia";
+      if (!canalId) {
+        status = "sem_canal";
+      } else if (!escolhida) {
+        status = "sem_noticia";
+      } else {
+        try {
+          const noticias = await buscarNoticias();
+          const noticia = noticias.find((n) => n.url === escolhida);
+          if (!noticia) throw new Error("notícia fora da lista atual");
+
+          await enviarMensagem(env, canalId, { embeds: [embedDaNoticia(noticia)] });
+          // Marca pra este servidor, pra verificação automática não repetir.
+          await marcarNoticiaPostada(env, guildId, noticia.url);
+          ctx.waitUntil(
+            registrarUsoComando(env, guildId, "painel:postar-noticia").catch(() => {})
+          );
+        } catch (err) {
+          console.log("Falha ao postar notícia escolhida:", err.message);
+          status = classificarFalha(err);
+        }
+      }
+
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `/dashboard/${guildId}?status=${status}` },
+      });
+    }
+
     const configMatch = url.pathname.match(/^\/dashboard\/(\d+)$/);
     if (configMatch && (request.method === "GET" || request.method === "POST")) {
       const guildId = configMatch[1];
@@ -602,12 +659,21 @@ async function rotear(request, env, ctx) {
         );
       }
 
-      const [config, canais] = await Promise.all([
+      const [config, canais, noticias] = await Promise.all([
         pegarConfig(env, guildId),
         listarCanaisTexto(env, guildId),
+        // A prévia é um extra: se o site da Riot não responder, a página de
+        // configuração continua funcionando normalmente, só sem a lista.
+        buscarNoticias().catch((err) => {
+          console.log("Não carreguei a prévia de notícias:", err.message);
+          return [];
+        }),
       ]);
       const status = url.searchParams.get("status");
-      return paginaHtml(`Configurar — ${servidor.name}`, formularioConfig(servidor, config, canais, salvo, status));
+      return paginaHtml(
+        `Configurar — ${servidor.name}`,
+        formularioConfig(servidor, config, canais, salvo, status, noticias)
+      );
     }
 
     if (request.method !== "POST") {

@@ -247,6 +247,16 @@ const ESTILO = `
   .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .78rem; background: var(--neutro); color: var(--texto-fraco); }
   .tag.ok { background: var(--destaque); color: var(--destaque-texto); }
   .tag.atencao { background: var(--alerta); color: #1a1205; }
+  .noticias { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 14px; }
+  .noticia {
+    display: flex; align-items: flex-start; gap: 10px; margin: 0; cursor: pointer;
+    padding: 10px 12px; border: 1px solid var(--borda); border-radius: 10px;
+    background: var(--fundo-suave); font-weight: 400;
+  }
+  .noticia:hover { border-color: var(--destaque); }
+  .noticia > span { display: flex; flex-direction: column; gap: 2px; }
+  .noticia strong { font-size: .9rem; font-weight: 600; }
+  .noticia input[type="radio"] { flex: none; margin-top: 3px; accent-color: var(--destaque); width: 16px; height: 16px; }
   .banner {
     display: inline-block; padding: 12px 18px; border-radius: 12px;
     font-weight: 700; background: var(--destaque); color: var(--destaque-texto);
@@ -398,11 +408,19 @@ const MENSAGENS_STATUS = {
   rotacao: "✓ Rotação postada no canal!",
   sem_canal: "Escolhe um canal antes de postar.",
   erro: "Não consegui postar agora — tenta de novo em instantes.",
+  noticia: "✓ Notícia postada no canal!",
+  sem_noticia: "Escolhe uma notícia da lista antes de postar.",
   chave_riot: "A Riot recusou a chave do bot, então a rotação está indisponível. Quem cuida do Ward precisa dar uma olhada.",
   sem_permissao: "Não consegui escrever nesse canal — confere se o Ward tem permissão de ver o canal e enviar mensagens nele.",
 };
 
-const STATUS_DE_ATENCAO = new Set(["sem_canal", "erro", "chave_riot", "sem_permissao"]);
+const STATUS_DE_ATENCAO = new Set([
+  "sem_canal",
+  "sem_noticia",
+  "erro",
+  "chave_riot",
+  "sem_permissao",
+]);
 
 // A Riot exige URLs públicas de política de privacidade e termos de uso pra
 // aprovar a API key. O conteúdo abaixo descreve exatamente o que o bot faz
@@ -605,7 +623,42 @@ export function paginaErro() {
   `;
 }
 
-export function formularioConfig(servidor, config, canais, salvo, status) {
+// Mostra as últimas notícias do site oficial e deixa postar uma na hora. O
+// bot já posta sozinho quando sai notícia nova — isto é só pra ver o que está
+// saindo e, se quiser, adiantar alguma.
+function previaNoticias(servidor, noticias) {
+  if (!noticias.length) {
+    return `<p class="fraco">Não consegui carregar a prévia das notícias agora.</p>`;
+  }
+
+  const formatarData = (iso) =>
+    new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+
+  // Da mais nova para a mais antiga, no máximo 5.
+  const itens = noticias
+    .slice()
+    .reverse()
+    .slice(0, 5)
+    .map(
+      (n) => `
+      <label class="noticia">
+        <input type="radio" name="noticia_url" value="${escapar(n.url)}">
+        <span>
+          <strong>${escapar(n.titulo)}</strong>
+          <span class="fraco">${escapar(n.categoria)} · ${formatarData(n.data)}</span>
+        </span>
+      </label>`
+    )
+    .join("");
+
+  return `
+    <p class="fraco">Últimas notícias publicadas:</p>
+    <div class="noticias">${itens}</div>
+    <button class="botao secundario" type="submit" formaction="/dashboard/${servidor.id}/postar-noticia">Postar notícia selecionada</button>
+  `;
+}
+
+export function formularioConfig(servidor, config, canais, salvo, status, noticias = []) {
   const opcoesCanais = (selecionado) =>
     [`<option value="">— escolher canal —</option>`]
       .concat(
@@ -655,9 +708,8 @@ export function formularioConfig(servidor, config, canais, salvo, status) {
         </label>
         <label class="campo"><span>Canal</span><select name="news_channel_id">${opcoesCanais(config.news_channel_id)}</select></label>
         <p class="fraco">CBLOL e outros esports, skins, atualizações do jogo e
-        comunicados, em português. Só sai quando tem notícia nova — cerca de 4
-        ou 5 por semana. As notas de atualização não entram aqui porque já têm
-        o aviso de patch acima.</p>
+        comunicados, em português.</p>
+        ${previaNoticias(servidor, noticias)}
       </div>
       <div class="cartao">
         <h2>Rotação semanal</h2>

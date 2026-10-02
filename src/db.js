@@ -86,16 +86,18 @@ export async function listarNoticiasAtiva(env) {
   return results;
 }
 
-export async function urlsDeNoticiasPostadas(env) {
-  const { results } = await env.DB.prepare("SELECT url FROM news_posted").all();
+export async function urlsDeNoticiasPostadas(env, guildId) {
+  const { results } = await env.DB.prepare("SELECT url FROM news_posted WHERE guild_id = ?")
+    .bind(guildId)
+    .all();
   return new Set(results.map((r) => r.url));
 }
 
-export async function marcarNoticiaPostada(env, url) {
+export async function marcarNoticiaPostada(env, guildId, url) {
   await env.DB.prepare(
-    "INSERT OR IGNORE INTO news_posted (url, posted_at) VALUES (?, datetime('now'))"
+    "INSERT OR IGNORE INTO news_posted (guild_id, url, posted_at) VALUES (?, ?, datetime('now'))"
   )
-    .bind(url)
+    .bind(guildId, url)
     .run();
 }
 
