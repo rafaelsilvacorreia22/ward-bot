@@ -300,6 +300,16 @@ async function checarNoticias(env, apenasGuild) {
         resumo.postadas++;
       } catch (err) {
         console.log(`Falha ao postar notícia em ${config.guild_id}:`, err.message);
+        // 400 é o Discord recusando o conteúdo em si — tentar de novo dá no
+        // mesmo. Como a fila sempre pega as 3 mais antigas pendentes e só sai
+        // dali quem é postado, uma notícia assim travava o servidor para
+        // sempre: foi o que parou o "Hora do Chá" em 04/10/2026. Marca para a
+        // fila andar; outros erros (sem permissão, Discord fora do ar) seguem
+        // sendo tentados de novo.
+        if (/-> 400\b/.test(err.message)) {
+          await marcarNoticiaPostada(env, config.guild_id, noticia.url);
+          resumo.descartadas = (resumo.descartadas ?? 0) + 1;
+        }
       }
     }
   }

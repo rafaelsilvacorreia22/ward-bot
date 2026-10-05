@@ -64,7 +64,11 @@ export async function buscarNoticias() {
       return !CATEGORIAS_IGNORADAS.test(item.category?.title ?? "");
     })
     .map((item) => ({
-      url: item.action.payload.url,
+      // As notícias do próprio site vêm com caminho relativo
+      // ("/pt-br/news/..."); só as do lolesports e do YouTube vêm completas.
+      // O Discord recusa embed cuja `url` não seja absoluta (400), então
+      // resolver aqui é obrigatório — e é o único lugar que monta esse campo.
+      url: new URL(item.action.payload.url, SITE).href,
       titulo: limparHtml(item.title),
       resumo: limparHtml(item.description?.body).slice(0, 300),
       categoria: item.category?.title ?? "Notícias",
