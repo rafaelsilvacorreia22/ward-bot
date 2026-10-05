@@ -62,10 +62,16 @@ export async function listarRotacaoAtiva(env) {
 
 // Servidores com horário diário configurado pra essa hora (fuso
 // America/Sao_Paulo) que ainda não receberam a postagem de hoje.
+//
+// O `rotation_enabled = 1` é obrigatório: o horário diário é só *quando*
+// postar, não *se* postar. Sem ele, um servidor que desligou o aviso mas
+// tinha deixado um horário salvo continuava recebendo a rotação todo dia —
+// foi o que aconteceu no "Hora do Chá" em 05/10/2026.
 export async function listarRotacaoDiarioPendente(env, hora, hoje) {
   const { results } = await env.DB.prepare(
     `SELECT * FROM guild_config
-     WHERE rotation_daily_hour = ? AND rotation_channel_id IS NOT NULL
+     WHERE rotation_enabled = 1
+       AND rotation_daily_hour = ? AND rotation_channel_id IS NOT NULL
        AND (rotation_last_daily_date IS NULL OR rotation_last_daily_date != ?)`
   )
     .bind(hora, hoje)

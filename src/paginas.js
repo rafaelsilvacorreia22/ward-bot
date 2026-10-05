@@ -922,9 +922,16 @@ export function paginaUso(servidores, configs, uso) {
   const tile = (valor, rotulo) => `<div class="tile"><strong>${valor}</strong><span>${rotulo}</span></div>`;
 
   const aviso = (ligado, canal, hora) => {
-    if (!ligado) return `<span class="tag">desligado</span>`;
+    const temHora = hora !== null && hora !== undefined;
+    const relogio = temHora ? `${String(hora).padStart(2, "0")}:00` : "";
+    // Mostra o horário guardado mesmo com o aviso desligado. Era isso que
+    // escondia o bug do "Hora do Chá": o painel dizia só "desligado" enquanto
+    // um horário diário continuava salvo na linha e disparando a postagem.
+    if (!ligado) {
+      return `<span class="tag">desligado</span>${temHora ? ` <span class="fraco">(${relogio} guardado, sem efeito)</span>` : ""}`;
+    }
     if (!canal) return `<span class="tag atencao">ligado, sem canal</span>`;
-    const quando = hora === null || hora === undefined ? "quando muda" : `todo dia às ${String(hora).padStart(2, "0")}:00`;
+    const quando = temHora ? `todo dia às ${relogio}` : "quando muda";
     return `<span class="tag ok">ligado</span> <span class="fraco">${quando}</span>`;
   };
 
