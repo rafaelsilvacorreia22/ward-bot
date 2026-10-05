@@ -544,21 +544,20 @@ ${corpo}
     try { localStorage.setItem("tema", raiz.dataset.tema); } catch (e) {}
   });
 
-  // O vídeo de fundo só ganha fonte aqui, nunca no HTML: assim o celular, a
-  // conexão em modo economia e quem pediu menos animação no sistema ficam só
-  // com o poster (um JPEG de 70 kB) em vez de baixar alguns megabytes.
+  // O vídeo de fundo só ganha fonte aqui, nunca no HTML. O celular também
+  // roda, com o corte vertical; quem fica só no poster é quem pediu isso no
+  // próprio aparelho: modo de economia de dados, rede 2G ou menos animação.
   (function () {
     var v = document.getElementById("video-fundo");
     if (!v) return;
     var rede = navigator.connection || {};
     if (
-      window.matchMedia("(max-width: 820px)").matches ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
       rede.saveData === true ||
       /(^|-)2g$/.test(rede.effectiveType || "")
     ) return;
     var s = document.createElement("source");
-    s.src = "/hero.mp4"; s.type = "video/mp4";
+    s.src = (v.dataset.base || "/hero") + ".mp4"; s.type = "video/mp4";
     v.appendChild(s);
     v.load();
 
@@ -611,9 +610,21 @@ export function landing(clientId) {
   return `
     <section class="heroi">
       <div class="heroi-midia">
-        <video id="video-fundo" class="heroi-video" poster="/hero.jpg"
+        <video id="video-fundo" class="heroi-video"
                autoplay muted loop playsinline preload="none"
                disablepictureinpicture aria-hidden="true" tabindex="-1"></video>
+        <script>
+          // Em retrato o vídeo deitado, em object-fit:cover, mostraria só uma
+          // fatia estreita do meio — por isso existe um corte 9:16 à parte.
+          // Esta escolha fica aqui, colada no elemento, e não no script do fim
+          // da página: um atributo poster no HTML começaria a baixar a imagem
+          // errada antes de qualquer script rodar.
+          (function () {
+            var v = document.getElementById("video-fundo");
+            v.dataset.base = window.innerHeight > window.innerWidth ? "/hero-mobile" : "/hero";
+            v.poster = v.dataset.base + ".jpg";
+          })();
+        </script>
         <div class="heroi-paineis" aria-hidden="true">
           <figure class="painel a"><img src="/p-patch.webp" alt="" width="591" height="128"></figure>
           <figure class="painel b"><img src="/p-site.webp" alt="" width="900" height="278"></figure>
@@ -624,7 +635,10 @@ export function landing(clientId) {
       </div>
       <div class="heroi-dentro">
         <p class="sobrancelha">Bot de Discord · League of Legends</p>
-        <h1>Seu servidor<br class="so-largo">nunca mais perde<br class="so-largo">o patch novo</h1>
+        <!-- O espaço antes de cada <br> é necessário: no celular o <br> some
+             (display:none) e sem ele as palavras encostariam uma na outra.
+             Em tela larga esse espaço cai no fim da linha e não aparece. -->
+        <h1>Seu servidor <br class="so-largo">nunca mais perde <br class="so-largo">o patch novo</h1>
         <div class="ornamento"><i></i></div>
         <p class="subtitulo">O Ward vigia as publicações da Riot e avisa no canal que
         você escolher: patch novo, notícias oficiais e a rotação grátis da semana.</p>
