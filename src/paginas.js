@@ -414,6 +414,53 @@ const MENSAGENS_STATUS = {
   sem_permissao: "Não consegui escrever nesse canal — confere se o Ward tem permissão de ver o canal e enviar mensagens nele.",
 };
 
+// O que fica gravado no banco é o erro cru da Discord ("... -> 403 {...}").
+// Aqui vira uma frase que o dono do servidor entende, dizendo o que ele pode
+// fazer. Antes disso a falha era só console.log e ninguém ficava sabendo.
+function explicarFalha(mensagem) {
+  const texto = String(mensagem ?? "");
+  if (/50001|50013|-> 403\b/.test(texto)) {
+    return "o Ward não tem permissão nesse canal — confere se ele consegue ver o canal e enviar mensagem nele";
+  }
+  if (/-> 404\b/.test(texto)) return "o canal escolhido não existe mais — é só escolher outro aqui embaixo";
+  if (/-> 400\b/.test(texto)) return "o Discord recusou o conteúdo da mensagem";
+  if (/apikey|RIOT_API_KEY|-> 401\b/i.test(texto)) {
+    return "a chave da Riot está vencida — quem cuida do Ward precisa renovar";
+  }
+  if (/-> 429\b/.test(texto)) return "o Discord pediu para o bot ir mais devagar";
+  return "o envio falhou";
+}
+
+// O banco grava em UTC (datetime('now')); mostra no fuso de quem lê o painel.
+function quandoFalhou(quando) {
+  if (!quando) return "";
+  const data = new Date(`${String(quando).replace(" ", "T")}Z`);
+  if (isNaN(data.getTime())) return "";
+  return data.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  });
+}
+
+// As três funções de um servidor que estão com erro gravado, na ordem em que
+// aparecem no painel. Devolve [] quando está tudo certo.
+function falhasDe(config) {
+  return [
+    ["Patch", config?.patch_last_error, config?.patch_last_error_at],
+    ["Notícias", config?.news_last_error, config?.news_last_error_at],
+    ["Rotação", config?.rotation_last_error, config?.rotation_last_error_at],
+  ].filter(([, erro]) => erro);
+}
+
+function avisoDeFalha(mensagem, quando) {
+  if (!mensagem) return "";
+  const data = quandoFalhou(quando);
+  return `<p class="banner atencao">Último envio falhou${data ? ` (${data})` : ""}: ${escapar(explicarFalha(mensagem))}.</p>`;
+}
+
 const STATUS_DE_ATENCAO = new Set([
   "sem_canal",
   "sem_noticia",
@@ -549,6 +596,7 @@ export function paginaUso(servidores, configs, uso) {
     return c && (c.patch_enabled || c.rotation_enabled);
   }).length;
   const totalComandos = uso.reduce((soma, u) => soma + u.total, 0);
+  const comFalha = servidores.filter((g) => falhasDe(configPorGuild.get(g.id)).length > 0).length;
 
   const tile = (valor, rotulo) => `<div class="tile"><strong>${valor}</strong><span>${rotulo}</span></div>`;
 
@@ -580,10 +628,21 @@ export function paginaUso(servidores, configs, uso) {
         ? eventos.map(formatar).join(" · ")
         : `<span class="fraco">nada usado ainda</span>`;
 
+      // Só lista o que está falhando — servidor saudável não ganha linha.
+      const falhas = falhasDe(c)
+        .map(
+          ([nome, erro, quando]) =>
+            `<p class="banner atencao">${nome}: ${escapar(explicarFalha(erro))}${
+              quandoFalhou(quando) ? ` <span class="fraco">(${quandoFalhou(quando)})</span>` : ""
+            }</p>`
+        )
+        .join("");
+
       return `
       <div class="cartao">
         <h2>${escapar(g.name)}</h2>
         <p class="fraco">${g.approximate_member_count ?? "?"} membros · id ${g.id}</p>
+        ${falhas}
         <p>Patch: ${aviso(c?.patch_enabled, c?.patch_channel_id, null)}</p>
         <p>Notícias: ${aviso(c?.news_enabled, c?.news_channel_id, null)}</p>
         <p>Rotação: ${aviso(c?.rotation_enabled, c?.rotation_channel_id, c?.rotation_daily_hour)}</p>
@@ -610,6 +669,7 @@ export function paginaUso(servidores, configs, uso) {
       ${tile(ativos, "com aviso ligado")}
       ${tile(membros.toLocaleString("pt-BR"), "membros alcançados")}
       ${tile(totalComandos, "comandos usados")}
+      ${tile(comFalha, "com falha no envio")}
     </div>
     ${cartoes}
     ${bloqueSaiu}
@@ -699,6 +759,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
     <form method="POST">
       <div class="cartao">
         <h2>Aviso de patch novo</h2>
+        ${avisoDeFalha(config.patch_last_error, config.patch_last_error_at)}
         <label class="interruptor">
           <input type="checkbox" name="patch_enabled" ${config.patch_enabled ? "checked" : ""}>
           Avisar quando sair patch novo
@@ -709,6 +770,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
       </div>
       <div class="cartao">
         <h2>Notícias oficiais</h2>
+        ${avisoDeFalha(config.news_last_error, config.news_last_error_at)}
         <label class="interruptor">
           <input type="checkbox" name="news_enabled" ${config.news_enabled ? "checked" : ""}>
           Postar as notícias do site oficial
@@ -720,6 +782,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
       </div>
       <div class="cartao">
         <h2>Rotação semanal</h2>
+        ${avisoDeFalha(config.rotation_last_error, config.rotation_last_error_at)}
         <label class="interruptor">
           <input type="checkbox" name="rotation_enabled" ${config.rotation_enabled ? "checked" : ""}>
           Avisar a rotação semanal de campeões grátis

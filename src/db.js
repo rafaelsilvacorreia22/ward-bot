@@ -15,6 +15,13 @@ export async function pegarConfig(env, guildId) {
       rotation_enabled: 0,
       rotation_channel_id: null,
       rotation_daily_hour: null,
+      news_seeded_at: null,
+      patch_last_error: null,
+      patch_last_error_at: null,
+      news_last_error: null,
+      news_last_error_at: null,
+      rotation_last_error: null,
+      rotation_last_error_at: null,
     }
   );
 }
@@ -104,6 +111,58 @@ export async function marcarNoticiaPostada(env, guildId, url) {
     "INSERT OR IGNORE INTO news_posted (guild_id, url, posted_at) VALUES (?, ?, datetime('now'))"
   )
     .bind(guildId, url)
+    .run();
+}
+
+// Colunas de erro por função. O mapa é fixo aqui no código e `colunasDe`
+// recusa chave desconhecida — então o nome de coluna que entra no SQL abaixo
+// nunca vem de fora, mantendo a regra do topo do arquivo.
+const COLUNAS_ERRO = {
+  patch: { texto: "patch_last_error", quando: "patch_last_error_at" },
+  noticias: { texto: "news_last_error", quando: "news_last_error_at" },
+  rotacao: { texto: "rotation_last_error", quando: "rotation_last_error_at" },
+};
+
+function colunasDe(funcao) {
+  const colunas = COLUNAS_ERRO[funcao];
+  if (!colunas) throw new Error(`função desconhecida para registro de erro: ${funcao}`);
+  return colunas;
+}
+
+// Guarda por que o último envio falhou. Sem isto a falha era só um
+// console.log e o feed de um servidor podia ficar morto por dias sem
+// ninguém saber. A mensagem é cortada porque o corpo de erro da Discord vem
+// com o JSON inteiro.
+export async function registrarErroEnvio(env, guildId, funcao, mensagem) {
+  const { texto, quando } = colunasDe(funcao);
+  await env.DB.prepare(
+    `INSERT INTO guild_config (guild_id, ${texto}, ${quando})
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(guild_id) DO UPDATE SET
+       ${texto} = excluded.${texto},
+       ${quando} = excluded.${quando}`
+  )
+    .bind(guildId, String(mensagem ?? "").slice(0, 300))
+    .run();
+}
+
+export async function limparErroEnvio(env, guildId, funcao) {
+  const { texto, quando } = colunasDe(funcao);
+  await env.DB.prepare(
+    `UPDATE guild_config SET ${texto} = NULL, ${quando} = NULL WHERE guild_id = ?`
+  )
+    .bind(guildId)
+    .run();
+}
+
+// Upsert e não update: um servidor pode estrear antes de ter salvado
+// configuração pelo painel, então a linha pode não existir ainda.
+export async function marcarNoticiasSemeadas(env, guildId) {
+  await env.DB.prepare(
+    `INSERT INTO guild_config (guild_id, news_seeded_at) VALUES (?, datetime('now'))
+     ON CONFLICT(guild_id) DO UPDATE SET news_seeded_at = excluded.news_seeded_at`
+  )
+    .bind(guildId)
     .run();
 }
 

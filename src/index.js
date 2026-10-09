@@ -38,6 +38,9 @@ import {
   listarNoticiasAtiva,
   urlsDeNoticiasPostadas,
   marcarNoticiaPostada,
+  marcarNoticiasSemeadas,
+  registrarErroEnvio,
+  limparErroEnvio,
   listarRotacaoDiarioPendente,
   marcarRotacaoDiario,
   pegarUltimaMensagemRotacao,
@@ -139,15 +142,22 @@ async function servidoresDoUsuario(env, sessao) {
 // Roda a ação em vários servidores sem estourar o limite de sub-requests do
 // Worker nem apanhar rate limit da Discord: um punhado por vez, e erro de um
 // servidor não derruba os outros.
-async function paraCadaServidor(configs, env, acao, tamanhoLote = 8) {
+// `funcao` ("patch" | "rotacao") diz em qual coluna gravar a falha. Este é o
+// único caminho por onde patch e rotação postam, então registrar aqui cobre
+// os dois de uma vez.
+async function paraCadaServidor(configs, env, acao, funcao, tamanhoLote = 8) {
   for (let i = 0; i < configs.length; i += tamanhoLote) {
     const lote = configs.slice(i, i + tamanhoLote);
     await Promise.all(
       lote.map(async (config) => {
         try {
           await acao(config);
+          if (funcao) await limparErroEnvio(env, config.guild_id, funcao);
         } catch (err) {
           console.log(`Falha no servidor ${config.guild_id}:`, err.message);
+          if (funcao) {
+            await registrarErroEnvio(env, config.guild_id, funcao, err.message).catch(() => {});
+          }
         }
       })
     );
@@ -211,8 +221,11 @@ async function checarPatch(env, apenasGuild) {
   const { versao, corpo } = await construirEmbedPatch(env);
   const todos = await listarPatchAtivo(env);
   const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
-  await paraCadaServidor(alvos, env, (config) =>
-    config.patch_channel_id ? enviarMensagem(env, config.patch_channel_id, corpo) : null
+  await paraCadaServidor(
+    alvos,
+    env,
+    (config) => (config.patch_channel_id ? enviarMensagem(env, config.patch_channel_id, corpo) : null),
+    "patch"
   );
   if (!apenasGuild) await salvarEstado(env, "last_patch_version", versao);
   return { mudou: true, versao, servidores: alvos.length, teste: Boolean(apenasGuild) };
@@ -236,10 +249,14 @@ async function checarRotacao(env, apenasGuild) {
 
   const todos = await listarRotacaoAtiva(env);
   const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
-  await paraCadaServidor(alvos, env, (config) =>
-    config.rotation_channel_id
-      ? postarRotacaoSubstituindo(env, config.guild_id, config.rotation_channel_id, corpo)
-      : null
+  await paraCadaServidor(
+    alvos,
+    env,
+    (config) =>
+      config.rotation_channel_id
+        ? postarRotacaoSubstituindo(env, config.guild_id, config.rotation_channel_id, corpo)
+        : null,
+    "rotacao"
   );
   if (!apenasGuild) await salvarEstado(env, "last_rotation_signature", assinatura);
   return { mudou: true, servidores: alvos.length, teste: Boolean(apenasGuild) };
@@ -280,25 +297,33 @@ async function checarNoticias(env, apenasGuild) {
   const resumo = { servidores: alvos.length, postadas: 0, estreantes: 0 };
 
   for (const config of alvos) {
-    const jaPostadas = await urlsDeNoticiasPostadas(env, config.guild_id);
-
     // Servidor estreando: marca tudo como visto sem postar nada.
-    if (jaPostadas.size === 0) {
+    //
+    // A marca é uma coluna própria, não "news_posted está vazio". Aquele
+    // proxy quebrava: o botão "Postar notícia" do painel grava uma linha, e a
+    // partir dali o servidor virava "veterano" e tinha que *enviar* todo o
+    // atrasado item por item — foi o que deixou o "Hora do Chá" com 17 na
+    // fila.
+    if (!config.news_seeded_at) {
       for (const noticia of noticias) await marcarNoticiaPostada(env, config.guild_id, noticia.url);
+      await marcarNoticiasSemeadas(env, config.guild_id);
       resumo.estreantes++;
       continue;
     }
 
+    const jaPostadas = await urlsDeNoticiasPostadas(env, config.guild_id);
     const novas = noticias
       .filter((n) => !jaPostadas.has(n.url))
       .slice(0, MAXIMO_NOTICIAS_POR_RODADA);
 
+    let ultimaFalha = null;
     for (const noticia of novas) {
       try {
         await enviarMensagem(env, config.news_channel_id, { embeds: [embedDaNoticia(noticia)] });
         await marcarNoticiaPostada(env, config.guild_id, noticia.url);
         resumo.postadas++;
       } catch (err) {
+        ultimaFalha = err.message;
         console.log(`Falha ao postar notícia em ${config.guild_id}:`, err.message);
         // 400 é o Discord recusando o conteúdo em si — tentar de novo dá no
         // mesmo. Como a fila sempre pega as 3 mais antigas pendentes e só sai
@@ -311,6 +336,14 @@ async function checarNoticias(env, apenasGuild) {
           resumo.descartadas = (resumo.descartadas ?? 0) + 1;
         }
       }
+    }
+
+    // O erro só é limpo quando alguma notícia sai de verdade: rodada sem nada
+    // novo não prova que o canal voltou a funcionar.
+    if (ultimaFalha) {
+      await registrarErroEnvio(env, config.guild_id, "noticias", ultimaFalha).catch(() => {});
+    } else if (novas.length && config.news_last_error) {
+      await limparErroEnvio(env, config.guild_id, "noticias").catch(() => {});
     }
   }
 
