@@ -18,169 +18,100 @@ function convite(clientId) {
 // Arte decorativa da página inicial. Qualquer versão serve: o Data Dragon
 // mantém as antigas para sempre, então isto não precisa acompanhar o patch.
 const VERSAO_ARTE = "16.19.1";
-// Elenco só da prévia visual da mensagem de rotação — não é a rotação real,
-// que vem da API da Riot na hora de postar.
-// Oito, não dez: é o que cabe numa linha só dentro da largura do embed.
-const CAMPEOES_VITRINE = [
-  "Ahri", "Jinx", "Darius", "Lux",
-  "Yasuo", "Thresh", "Ekko", "Leona",
-];
+const CAMPEOES_ALEGRES = ["Lulu", "Teemo", "Yuumi", "Poppy", "Milio", "Zoe"];
 
-const ICONE_LUA = `<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
-const ICONE_SOL = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>`;
-
-// As duas fontes oficiais do League of Legends, servidas pela CDN da própria
-// Riot (que manda CORS liberado). Se um dia essas URLs mudarem, o fallback
-// abaixo de cada família segura a página sem quebrar nada.
-const FONTE = "https://lolstatic-a.akamaihd.net/webfonts/live/fonts";
-const FONTES = `
-  @font-face { font-family: "Beaufort for LOL"; src: url("${FONTE}/beaufort/BeaufortforLOL-Regular.woff") format("woff"); font-weight: 400; font-display: swap; }
-  @font-face { font-family: "Beaufort for LOL"; src: url("${FONTE}/beaufort/BeaufortforLOL-Bold.woff") format("woff"); font-weight: 700; font-display: swap; }
-  @font-face { font-family: "Beaufort for LOL"; src: url("${FONTE}/beaufort/BeaufortforLOL-Heavy.woff") format("woff"); font-weight: 800; font-display: swap; }
-  @font-face { font-family: "Spiegel"; src: url("${FONTE}/spiegel/Spiegel-Regular.woff") format("woff"); font-weight: 400; font-display: swap; }
-  @font-face { font-family: "Spiegel"; src: url("${FONTE}/spiegel/Spiegel-SemiBold.woff") format("woff"); font-weight: 600; font-display: swap; }
-`;
+const ICONE_LUA = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
+const ICONE_SOL = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>`;
 
 const ESTILO = `
-  /* Paleta do cliente do League of Legends: azul quase preto, dourado
-     Hextech como único destaque e o bege das notas de patch no texto.
-     Nada de roxo/ciano genérico e nada de canto arredondado — o jogo é todo
-     feito de linhas retas e chanfros. */
+  /* Cinza neutro, sem puxar para o azul. O verde-água é o único destaque,
+     porque é a cor da própria ward. */
   :root {
     color-scheme: dark;
-    --fundo: #010a13;
-    --superficie: #0a1428;
-    --superficie-2: #0f1c30;
-    --linha: #3c3c41;
-    --texto: #f0e6d2;
-    --texto-fraco: #a09b8c;
+    --fundo: #17191c;
+    --fundo-suave: #1e2023;
+    --superficie: #212428;
+    --borda: #33373d;
+    --texto: #e7e8ea;
+    --texto-fraco: #9a9fa6;
+    --destaque: #0ac8b9;
+    --destaque-fundo: #089c91;
+    --destaque-texto: #06231f;
     --ouro: #c8aa6e;
-    --ouro-claro: #f0e6d2;
-    --ouro-escuro: #785a28;
-    --ouro-fundo: #463714;
-    --btn-texto: #010a13;
-    --grad-titulo: linear-gradient(180deg, #f0e6d2 0%, #c8aa6e 48%, #785a28 100%);
-    /* Vermelho de "você morreu" do jogo, não o dourado: senão o banner de
-       atenção fica idêntico ao de sucesso e ninguém percebe a diferença. */
-    --alerta: #c6443e;
-    --alerta-texto: #f0e6d2;
-    --veu-topo: rgba(1, 10, 19, .9);
-    /* Chanfro de canto: o corte diagonal que o jogo usa em botão, moldura e
-       caixa de item. É o detalhe que mais entrega "isto é LoL". */
-    --chanfro: polygon(13px 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%, 0 13px);
-    --chanfro-p: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+    --ouro-fundo: #9b8250;
+    --neutro: #2e3237;
+    --neutro-fundo: #23262a;
+    --alerta: #e0a52e;
   }
-  /* Tema claro em pergaminho, o papel das notas de patch — não um branco de
-     painel. O bloco aparece duas vezes de propósito: uma para a escolha
-     manual e outra para a preferência do sistema. */
+  /* O bloco claro aparece duas vezes de propósito: uma para a escolha manual
+     e outra para a preferência do sistema. CSS não deixa juntar as duas
+     condições num seletor só. */
   :root[data-tema="claro"] {
     color-scheme: light;
-    --fundo: #e4ded0;
-    --superficie: #f5f1e6;
-    --superficie-2: #ece6d6;
-    --linha: #c3b696;
-    --texto: #10243b;
-    --texto-fraco: #5b5a56;
-    --ouro: #785a28;
-    --ouro-claro: #463714;
-    --ouro-escuro: #a08444;
-    --ouro-fundo: #d8caa6;
-    --btn-texto: #f5f1e6;
-    --grad-titulo: linear-gradient(180deg, #785a28 0%, #463714 100%);
-    --alerta: #a3302a;
-    --alerta-texto: #f5f1e6;
-    --veu-topo: rgba(228, 222, 208, .94);
+    --fundo: #f4f4f5;
+    --fundo-suave: #ebebed;
+    --superficie: #ffffff;
+    --borda: #dcdcdf;
+    --texto: #1b1d20;
+    --texto-fraco: #6b7076;
+    --destaque: #0aa89c;
+    --destaque-fundo: #077f76;
+    --destaque-texto: #ffffff;
+    --ouro: #a98a4c;
+    --ouro-fundo: #866a34;
+    --neutro: #e4e4e7;
+    --neutro-fundo: #c9c9ce;
+    --alerta: #9c6a16;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-tema="escuro"]) {
       color-scheme: light;
-      --fundo: #e4ded0;
-      --superficie: #f5f1e6;
-      --superficie-2: #ece6d6;
-      --linha: #c3b696;
-      --texto: #10243b;
-      --texto-fraco: #5b5a56;
-      --ouro: #785a28;
-      --ouro-claro: #463714;
-      --ouro-escuro: #a08444;
-      --ouro-fundo: #d8caa6;
-      --btn-texto: #f5f1e6;
-      --grad-titulo: linear-gradient(180deg, #785a28 0%, #463714 100%);
-      --alerta: #a3302a;
-      --alerta-texto: #f5f1e6;
-      --veu-topo: rgba(228, 222, 208, .94);
+      --fundo: #f4f4f5;
+      --fundo-suave: #ebebed;
+      --superficie: #ffffff;
+      --borda: #dcdcdf;
+      --texto: #1b1d20;
+      --texto-fraco: #6b7076;
+      --destaque: #0aa89c;
+      --destaque-fundo: #077f76;
+      --destaque-texto: #ffffff;
+      --ouro: #a98a4c;
+      --ouro-fundo: #866a34;
+      --neutro: #e4e4e7;
+      --neutro-fundo: #c9c9ce;
+      --alerta: #9c6a16;
     }
   }
 
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: "Spiegel", system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-size: 15.5px;
-    background: var(--fundo);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+    background: radial-gradient(1100px 520px at 50% -180px, var(--fundo-suave), var(--fundo)) no-repeat, var(--fundo);
     min-height: 100vh;
     color: var(--texto);
-    line-height: 1.6;
-    overflow-x: hidden;
+    line-height: 1.55;
   }
-  /* Trama fina de linhas douradas no fundo de tudo: o mesmo fundo quadriculado
-     das telas de carregamento. Fica quase invisível, só tira o "chapado". */
-  body::before {
-    content: ""; position: fixed; inset: 0; z-index: -2; pointer-events: none;
-    background-image:
-      linear-gradient(rgba(200, 170, 110, .045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(200, 170, 110, .045) 1px, transparent 1px);
-    background-size: 72px 72px;
-  }
-
-  h1, h2, h3, .fonte-jogo {
-    font-family: "Beaufort for LOL", "Trajan Pro", Georgia, serif;
-    font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
-  }
-  h1 { font-size: clamp(1.7rem, 4.4vw, 2.5rem); line-height: 1.12; margin: 0 0 16px; }
-  h2 { font-size: 1.02rem; letter-spacing: .09em; margin: 0 0 12px; color: var(--ouro); }
+  .conteudo { max-width: 660px; margin: 0 auto; padding: 0 20px 60px; }
+  a { color: var(--destaque); }
+  h1 { font-size: clamp(1.5rem, 4vw, 2rem); line-height: 1.25; margin: 0 0 12px; letter-spacing: -.01em; }
+  h2 { font-size: .98rem; margin: 0 0 10px; }
   p { margin: 0 0 12px; }
-  a { color: var(--ouro); text-decoration-color: var(--ouro-escuro); text-underline-offset: 3px; }
-  a:hover { color: var(--ouro-claro); }
-  code {
-    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-    background: var(--superficie-2); border: 1px solid var(--linha);
-    padding: 1px 6px; font-size: .86em; color: var(--ouro);
-  }
+  code { background: var(--neutro-fundo); padding: 2px 6px; border-radius: 5px; font-size: .88em; }
 
-  /* ---------- barra de topo ---------- */
   .topo {
-    position: fixed; inset: 0 0 auto; z-index: 50;
     display: flex; align-items: center; justify-content: space-between;
-    gap: 16px; height: 58px; padding: 0 clamp(14px, 4vw, 34px);
-    /* Sem backdrop-filter: na inicial a barra fica por cima do vídeo, e
-       desfocar o fundo a cada frame custa o mesmo que o filter do vídeo.
-       Um fundo mais opaco resolve igual e não custa nada. */
-    background: var(--veu-topo);
-    border-bottom: 1px solid color-mix(in srgb, var(--ouro) 28%, transparent);
+    max-width: 760px; margin: 0 auto; padding: 18px 20px;
   }
-  .marca {
-    display: flex; align-items: center; gap: 11px;
-    color: var(--texto); text-decoration: none;
-    font-family: "Beaufort for LOL", Georgia, serif;
-    font-weight: 800; font-size: .95rem;
-    text-transform: uppercase; letter-spacing: .26em;
-  }
-  .marca img { width: 27px; height: 27px; }
-  .topo-dir { display: flex; align-items: center; gap: 8px; }
-  .topo-link {
-    font-family: "Beaufort for LOL", Georgia, serif; font-weight: 700;
-    font-size: .74rem; text-transform: uppercase; letter-spacing: .16em;
-    color: var(--texto-fraco); text-decoration: none; padding: 8px 10px;
-  }
-  .topo-link:hover { color: var(--ouro); }
+  .marca { display: flex; align-items: center; gap: 10px; font-weight: 800; color: var(--texto); text-decoration: none; letter-spacing: .02em; }
+  .marca img { width: 34px; height: 34px; border-radius: 9px; }
   .tema {
-    display: grid; place-items: center; width: 34px; height: 34px;
-    border: 1px solid color-mix(in srgb, var(--ouro) 45%, transparent);
-    background: transparent; color: var(--texto-fraco); cursor: pointer;
-    clip-path: var(--chanfro-p); transition: color .15s, border-color .15s;
+    display: grid; place-items: center; width: 42px; height: 42px;
+    border-radius: 50%; border: 1px solid var(--borda);
+    background: var(--superficie); color: var(--texto); cursor: pointer;
   }
-  .tema:hover { color: var(--ouro); border-color: var(--ouro); }
+  .tema:hover { border-color: var(--destaque); color: var(--destaque); }
   .tema .sol { display: none; }
   :root[data-tema="claro"] .tema .sol { display: block; }
   :root[data-tema="claro"] .tema .lua { display: none; }
@@ -189,290 +120,33 @@ const ESTILO = `
     :root:not([data-tema="escuro"]) .tema .lua { display: none; }
   }
 
-  /* ---------- botões ---------- */
-  /* Retângulo chanfrado, texto em versalete espaçado: o botão "JOGUE DE GRAÇA"
-     do site oficial. O isolation + z-index:-1 deixa o ::before pintar o miolo
-     da variante vazada sem precisar embrulhar o texto num <span>. */
+  /* Botão "gordinho" com sombra sólida embaixo: dá a sensação de afundar ao
+     clicar, que é o que deixa a página com cara de brinquedo e não de painel. */
   .botao {
-    position: relative; isolation: isolate;
     display: inline-flex; align-items: center; justify-content: center;
-    padding: 13px 30px; margin: 5px 6px 5px 0;
-    border: 0; cursor: pointer; text-decoration: none;
-    clip-path: var(--chanfro);
-    background: linear-gradient(180deg, var(--ouro-claro) 0%, var(--ouro) 38%, var(--ouro-escuro) 100%);
-    color: var(--btn-texto);
-    font-family: "Beaufort for LOL", Georgia, serif;
-    font-size: .78rem; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .18em;
-    transition: filter .15s ease, transform .15s ease;
+    padding: 11px 20px; margin: 5px 4px;
+    border: 0; border-radius: 999px; cursor: pointer;
+    background: var(--destaque); color: var(--destaque-texto);
+    font: inherit; font-size: .82rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; text-decoration: none;
+    box-shadow: 0 4px 0 var(--destaque-fundo);
+    transition: transform .12s ease, box-shadow .12s ease;
   }
-  .botao:hover { filter: brightness(1.14); color: var(--btn-texto); }
-  .botao:active { transform: translateY(1px); }
-  .botao:focus-visible { outline: 2px solid var(--ouro-claro); outline-offset: 3px; }
-  /* Vazado: moldura dourada de 1px com o fundo da página dentro. */
-  .botao.vazado { background: var(--ouro-escuro); color: var(--ouro); }
-  .botao.vazado::before {
-    content: ""; position: absolute; inset: 1px; z-index: -1;
-    background: var(--superficie); clip-path: var(--chanfro);
-    transition: background .15s ease;
-  }
-  .botao.vazado:hover { filter: none; color: var(--ouro-claro); background: var(--ouro); }
-  .botao.vazado:hover::before { background: color-mix(in srgb, var(--ouro) 12%, var(--superficie)); }
-  .botao.discreto { padding: 10px 20px; font-size: .72rem; }
+  .botao:hover { transform: translateY(-2px); box-shadow: 0 7px 0 var(--destaque-fundo); }
+  .botao:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--destaque-fundo); }
+  .botao.ouro { background: var(--ouro); color: var(--destaque-texto); box-shadow: 0 5px 0 var(--ouro-fundo); }
+  .botao.ouro:hover { box-shadow: 0 7px 0 var(--ouro-fundo); }
+  .botao.ouro:active { box-shadow: 0 1px 0 var(--ouro-fundo); }
+  .botao.secundario { background: var(--neutro); color: var(--texto); box-shadow: 0 5px 0 var(--neutro-fundo); }
+  .botao.secundario:hover { box-shadow: 0 7px 0 var(--neutro-fundo); }
+  .botao.secundario:active { box-shadow: 0 1px 0 var(--neutro-fundo); }
 
-  /* ---------- hero com o vídeo ---------- */
-  .heroi {
-    position: relative; min-height: 100svh;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    text-align: center; padding: 90px clamp(18px, 5vw, 40px) 110px;
-    /* O hero é sempre escuro, nos dois temas: o vídeo pede texto claro. */
-    color: #f0e6d2;
-  }
-  .heroi-midia { position: absolute; inset: 0; overflow: hidden; background: #010a13; }
-  .heroi-midia video, .heroi-poster {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: cover; display: block;
-    /* Sem filter nenhum aqui de propósito. O desfoque, a saturação e o
-       contraste já estão assados no arquivo pelo ffmpeg. Um filter de CSS
-       sobre vídeo em tela cheia é recalculado a cada frame e derrubava a
-       reprodução para ~20fps; assado, o vídeo vira uma camada que a GPU só
-       compõe, e roda nos 60fps do arquivo. */
-  }
-  /* Véu em três camadas: o miolo escuro dá contraste ao texto, a vinheta é
-     fraca de propósito — é nas laterais que os painéis aparecem — e a última
-     funde a borda de baixo no fundo da próxima seção. */
-  .heroi-veu {
-    position: absolute; inset: 0;
-    background:
-      radial-gradient(54% 46% at 50% 46%, rgba(1, 10, 19, .84) 0%, rgba(1, 10, 19, .5) 60%, transparent 100%),
-      radial-gradient(130% 95% at 50% 40%, transparent 45%, rgba(1, 10, 19, .5) 85%, rgba(1, 10, 19, .78) 100%),
-      linear-gradient(180deg, rgba(1, 10, 19, .88) 0%, rgba(1, 10, 19, .34) 24%, rgba(1, 10, 19, .5) 64%, var(--fundo) 100%);
-  }
-  /* Camada de painéis: recortes de verdade do bot postando no Discord e das
-     publicações do site oficial, flutuando atrás do título. Ficam entre o
-     vídeo e o véu, então escurecem junto com o fundo.
-     Por que aqui e não gravados dentro do vídeo: com object-fit:cover o vídeo
-     é cortado nas laterais em janela estreita e em cima/embaixo em janela
-     larga, e qualquer coisa fixada perto da borda some. Em % do hero eles
-     nunca cortam, não pegam o desfoque do vídeo e dá para trocar um print
-     sem reencodar nada. */
-  .heroi-paineis { position: absolute; inset: 0; pointer-events: none; }
-  .painel {
-    position: absolute; margin: 0; opacity: 0;
-    border: 1px solid rgba(200, 170, 110, .5);
-    box-shadow: 0 18px 46px rgba(1, 10, 19, .8);
-    animation: painel-passa 20s ease-in-out infinite both;
-    /* Avisa o navegador para dar camada própria a cada painel: sem isso ele
-       pode rerrasterizar a sombra grande a cada quadro da animação, em cima
-       do vídeo. */
-    will-change: opacity, transform;
-  }
-  .painel img { display: block; width: 100%; height: auto; }
-  .painel.a { left: 3.5%;  top: 17%;    width: min(330px, 25vw); }
-  .painel.b { right: 3.5%; top: 14%;    width: min(400px, 29vw); animation-delay: 3s; }
-  .painel.c { left: 3.5%;  bottom: 17%; width: min(330px, 25vw); animation-delay: 9s; }
-  .painel.d { right: 5%;   bottom: 11%; width: min(205px, 16vw); animation-delay: 13s; }
-  /* Aparece, fica ~4,5s e some — os quatro em revezamento num ciclo de 20s. */
-  @keyframes painel-passa {
-    0%        { opacity: 0; transform: translateY(16px); }
-    5%, 23%   { opacity: .96; transform: translateY(0); }
-    29%, 100% { opacity: 0; transform: translateY(-12px); }
-  }
-  /* Abaixo disso o hero fica estreito e os painéis encostariam no título. */
-  @media (max-width: 1100px) { .heroi-paineis { display: none; } }
-
-  .heroi-dentro {
-    position: relative; max-width: 740px;
-    filter: drop-shadow(0 2px 16px rgba(1, 10, 19, .95));
-  }
-  .sobrancelha {
-    font-family: "Beaufort for LOL", Georgia, serif; font-weight: 700;
-    font-size: .72rem; text-transform: uppercase; letter-spacing: .34em;
-    color: #c8aa6e; margin: 0 0 18px;
-  }
-  .heroi h1 {
-    font-size: clamp(2.1rem, 6.6vw, 4.1rem); font-weight: 800;
-    letter-spacing: .02em; line-height: 1.04; margin: 0 0 20px;
-    background: linear-gradient(180deg, #f0e6d2 0%, #c8aa6e 52%, #91713a 100%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-  }
-  .heroi .subtitulo { color: #c4c2bb; max-width: 520px; margin: 0 auto 30px; font-size: 1.02rem; }
-  .heroi .acoes { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
-
-  /* Filete com o losango no meio: o separador padrão do cliente. */
-  .ornamento { display: flex; align-items: center; justify-content: center; gap: 13px; margin: 0 0 22px; }
-  .ornamento::before, .ornamento::after {
-    content: ""; height: 1px; width: clamp(50px, 14vw, 130px);
-    background: linear-gradient(90deg, transparent, var(--ouro));
-  }
-  .ornamento::after { background: linear-gradient(90deg, var(--ouro), transparent); }
-  .ornamento i { width: 7px; height: 7px; rotate: 45deg; background: var(--ouro); }
-  .heroi .ornamento::before { background: linear-gradient(90deg, transparent, #c8aa6e); }
-  .heroi .ornamento::after { background: linear-gradient(90deg, #c8aa6e, transparent); }
-  .heroi .ornamento i { background: #c8aa6e; }
-
-  .descer {
-    position: absolute; bottom: 30px; left: 50%; translate: -50% 0;
-    width: 15px; height: 15px; border: solid #c8aa6e; border-width: 0 1.5px 1.5px 0;
-    rotate: 45deg; opacity: .75; animation: pulsar 2.1s ease-in-out infinite;
-  }
-  @keyframes pulsar { 0%, 100% { translate: -50% 0; opacity: .3; } 50% { translate: -50% 7px; opacity: .9; } }
-
-  /* ---------- blocos de conteúdo ---------- */
-  .faixa { padding: clamp(56px, 9vw, 96px) clamp(18px, 5vw, 40px); }
-  .faixa.escura { background: var(--superficie); border-block: 1px solid color-mix(in srgb, var(--ouro) 18%, transparent); }
-  .limite { max-width: 1040px; margin: 0 auto; }
-  .titulo-secao { text-align: center; margin-bottom: 40px; }
-  .titulo-secao h2 { font-size: clamp(1.3rem, 3.2vw, 1.9rem); letter-spacing: .06em; color: var(--texto); margin-bottom: 14px; }
-  .titulo-secao .ornamento { margin-bottom: 0; }
-
-  .grade { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); }
-
-  /* Painel chanfrado com moldura dourada fina — a moldura do inventário. */
   .cartao {
-    position: relative; isolation: isolate;
-    background: var(--ouro-escuro); clip-path: var(--chanfro);
-    /* O respiro é padding do próprio cartão, não margem dos filhos: qualquer
-       filho que declare "margin: 0 0 Npx" (o atalho zera a margem lateral)
-       vazaria por cima da moldura. Foi o que acontecia com o losango do
-       interruptor e com a linha do seletor de canal. */
-    padding: 25px; transition: background .18s ease;
+    background: var(--superficie); border: 1px solid var(--borda);
+    border-radius: 14px; padding: 18px; margin: 14px 0;
   }
-  .cartao::before {
-    content: ""; position: absolute; inset: 1px; z-index: -1;
-    background: var(--superficie-2); clip-path: var(--chanfro);
-  }
-  .cartao:hover { background: var(--ouro); }
-  .cartao > :first-child { margin-top: 0; }
-  .cartao > :last-child { margin-bottom: 0; }
-  .numero {
-    font-family: "Beaufort for LOL", Georgia, serif; font-weight: 800;
-    font-size: 1.5rem; color: var(--ouro-escuro); letter-spacing: .06em;
-    margin-bottom: 4px; display: block;
-  }
-  .cartao p { color: var(--texto-fraco); margin-bottom: 0; }
-
-  /* ---------- prévia da mensagem no Discord ---------- */
-  /* Cores do próprio Discord de propósito: é um retrato do que chega lá,
-     então imitar o painel dourado do LoL aqui mentiria sobre o resultado. */
-  .previa { max-width: 620px; margin: 0 auto; border: 1px solid var(--linha); background: #313338; text-align: left; }
-  .previa-barra {
-    display: flex; align-items: center; gap: 8px;
-    padding: 11px 16px; border-bottom: 1px solid #26282c;
-    color: #b5bac1; font-size: .85rem; font-weight: 600;
-  }
-  .previa-barra svg { flex: none; }
-  .previa-msg { display: flex; gap: 14px; padding: 16px; }
-  .previa-avatar { width: 38px; height: 38px; border-radius: 50%; flex: none; background: #1e1f22; }
-  .previa-nome { color: #f2f3f5; font-weight: 600; font-size: .92rem; margin: 0 0 6px; }
-  .previa-tag { background: #5865f2; color: #fff; font-size: .62rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-left: 5px; vertical-align: 2px; letter-spacing: .02em; }
-  .previa-hora { color: #949ba4; font-size: .72rem; font-weight: 400; margin-left: 7px; }
-  .previa-embed { border-left: 4px solid #c8aa6e; background: #2b2d31; padding: 13px 16px; max-width: 460px; }
-  .previa-embed strong { display: block; color: #f2f3f5; font-size: .94rem; margin-bottom: 9px; }
-  .previa-campeoes { display: flex; flex-wrap: wrap; gap: 5px; }
-  .previa-campeoes img { width: 38px; height: 38px; border: 1px solid #c8aa6e; background: #1e1f22; }
-  .previa-rodape { color: #949ba4; font-size: .75rem; margin: 10px 0 0; }
-
-  /* ---------- lista de comandos ---------- */
-  .comandos { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
-  .comando { display: flex; align-items: baseline; gap: 11px; padding: 14px 18px; background: var(--superficie-2); border-left: 2px solid var(--ouro-escuro); }
-  .comando code { background: none; border: 0; padding: 0; font-size: .95rem; font-weight: 600; }
-  .comando span { color: var(--texto-fraco); font-size: .88rem; }
-
-  /* ---------- páginas internas ---------- */
-  main.conteudo { max-width: 700px; margin: 0 auto; padding: 96px 20px 70px; }
-  main.cheio { padding: 0; }
   .centro { text-align: center; }
-  .voltar {
-    display: inline-block; font-family: "Beaufort for LOL", Georgia, serif;
-    font-size: .74rem; text-transform: uppercase; letter-spacing: .16em;
-    text-decoration: none; margin-bottom: 18px;
-  }
-  main.conteudo .cartao { margin: 16px 0; }
-  main.conteudo .cartao:hover { background: var(--ouro-escuro); }
-
-  /* ---------- formulário ---------- */
-  /* O gap é maior que o normal porque o quadrado girado em losango ocupa a
-     diagonal (~24px), não os 17px do lado. */
-  .interruptor { display: flex; align-items: center; gap: 14px; font-size: .94rem; font-weight: 600; margin: 0 0 18px; cursor: pointer; }
-  .campo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }
-  .campo > span {
-    color: var(--texto-fraco); min-width: 140px;
-    font-family: "Beaufort for LOL", Georgia, serif; font-size: .74rem;
-    text-transform: uppercase; letter-spacing: .13em;
-  }
-  .campo select { flex: 1; min-width: 200px; }
-
-  /* appearance:none tira o botão de seta que o sistema desenha (no Windows ele
-     aparece como uma caixa cinza que destoa do resto); a seta abaixo é nossa. */
-  select {
-    appearance: none; -webkit-appearance: none; -moz-appearance: none;
-    font: inherit; font-size: .9rem; color: var(--texto); cursor: pointer;
-    padding: 10px 36px 10px 13px;
-    border: 1px solid var(--linha); border-radius: 0;
-    background-color: var(--fundo);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c8aa6e' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 13px center; background-size: 13px;
-    transition: border-color .15s ease;
-  }
-  select:hover { border-color: var(--ouro); }
-  select:focus-visible { outline: 2px solid var(--ouro); outline-offset: 2px; border-color: var(--ouro); }
-  option { background: var(--superficie); color: var(--texto); }
-
-  input[type="checkbox"] {
-    appearance: none; -webkit-appearance: none;
-    /* A margem esquerda compensa a sobra da diagonal: girado 45°, o losango
-       desenha 3,5px para fora da caixa de 17px de cada lado, e sem isso ele
-       encostava na moldura do cartão. */
-    width: 17px; height: 17px; flex: none; margin: 0 0 0 4px; cursor: pointer;
-    border: 1px solid var(--linha); border-radius: 0; rotate: 45deg;
-    background: var(--fundo); transition: background-color .15s ease, border-color .15s ease;
-  }
-  input[type="checkbox"]:hover { border-color: var(--ouro); }
-  input[type="checkbox"]:checked { background-color: var(--ouro); border-color: var(--ouro-claro); }
-  input[type="checkbox"]:focus-visible { outline: 2px solid var(--ouro); outline-offset: 3px; }
-
-  .aviso, .fraco { color: var(--texto-fraco); font-size: .88rem; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; margin: 18px 0; }
-  .tile { background: var(--superficie-2); border: 1px solid var(--linha); padding: 16px; text-align: center; clip-path: var(--chanfro-p); }
-  .tile strong { display: block; font-family: "Beaufort for LOL", Georgia, serif; font-size: 1.7rem; line-height: 1.2; color: var(--ouro); }
-  .tile span {
-    color: var(--texto-fraco); font-size: .7rem;
-    text-transform: uppercase; letter-spacing: .13em;
-  }
-  .tag {
-    display: inline-block; padding: 2px 10px; font-size: .68rem;
-    text-transform: uppercase; letter-spacing: .12em;
-    border: 1px solid var(--linha); color: var(--texto-fraco);
-  }
-  .tag.ok { border-color: var(--ouro); color: var(--ouro); }
-  .tag.atencao { border-color: var(--alerta); color: var(--alerta); }
-  .noticias { display: flex; flex-direction: column; gap: 7px; margin: 12px 0 16px; }
-  .noticia {
-    display: flex; align-items: flex-start; gap: 11px; margin: 0; cursor: pointer;
-    padding: 11px 14px; border: 1px solid var(--linha);
-    background: var(--fundo); font-weight: 400;
-  }
-  .noticia:hover { border-color: var(--ouro); }
-  .noticia > span { display: flex; flex-direction: column; gap: 2px; }
-  .noticia strong { font-size: .92rem; font-weight: 600; }
-  .noticia input[type="radio"] { flex: none; margin-top: 4px; accent-color: var(--ouro); width: 15px; height: 15px; }
-  .banner {
-    display: inline-block; padding: 12px 20px;
-    font-family: "Beaufort for LOL", Georgia, serif; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .12em; font-size: .8rem;
-    background: var(--ouro); color: var(--btn-texto); clip-path: var(--chanfro-p);
-  }
-  .banner.atencao { background: var(--alerta); color: var(--alerta-texto); }
-
-  .rodape {
-    text-align: center; color: var(--texto-fraco); font-size: .82rem;
-    padding: 36px clamp(18px, 5vw, 40px) 44px;
-    border-top: 1px solid color-mix(in srgb, var(--ouro) 18%, transparent);
-  }
-  .rodape .legal { max-width: 620px; margin: 16px auto 0; font-size: .74rem; opacity: .75; line-height: 1.55; }
-  ul { padding-left: 20px; }
-  li { margin-bottom: 7px; }
+  .cartao.centro h2 { margin-bottom: 14px; }
 
   /* Transição entre páginas. O navegador faz o cross-fade sozinho a partir
      desta regra; o cabeçalho ganha nome próprio para ficar parado enquanto o
@@ -483,39 +157,125 @@ const ESTILO = `
   @keyframes sair-conteudo { to { opacity: 0; transform: translateY(-6px); } }
   ::view-transition-old(root) { animation: sair-conteudo .2s ease both; }
   ::view-transition-new(root) { animation: entrar-conteudo .28s ease both; }
+  /* Onde não há suporte a view transitions (Firefox), pelo menos a entrada da
+     página é animada — sem duplicar o efeito onde já existe. */
   @supports not (view-transition-name: none) {
-    main { animation: entrar-conteudo .28s ease both; }
+    .conteudo { animation: entrar-conteudo .28s ease both; }
   }
+  .heroi { text-align: center; padding: 34px 0 10px; }
+  /* A folga embaixo é onde os campeões aparecem no hover do "Me adicione!" —
+     sem ela, eles cobrem o texto do subtítulo. */
+  .subtitulo { color: var(--texto-fraco); font-size: .98rem; max-width: 480px; margin: 0 auto 84px; }
+  .acoes { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; }
+
+  /* Com as funções escondidas a página inicial fica curta, então o conteúdo
+     é centralizado na altura da tela pra não sobrar um vazio embaixo. */
+  .tela-inicial { min-height: calc(100vh - 150px); display: flex; flex-direction: column; justify-content: center; }
+
+  /* O "Saiba mais" é um link para #funcoes: a seção só aparece quando vira
+     alvo da URL, sem precisar de JavaScript. */
+  #funcoes { display: none; }
+  #funcoes:target { display: block; }
+
+  /* Campeões que sobem do botão quando o mouse passa por cima. */
+  .adicionar { position: relative; display: inline-block; }
+  .campeoes { position: absolute; left: 50%; bottom: 100%; translate: -50% 0; display: flex; pointer-events: none; }
+  /* Some em tela estreita: lá não existe hover e o leque vazaria para fora. */
+  @media (max-width: 620px) { .campeoes { display: none; } }
+  .campeoes img {
+    width: 46px; height: 46px; margin: 0 -7px;
+    border-radius: 50%; border: 2px solid var(--destaque);
+    background: var(--superficie);
+    opacity: 0; transform: translateY(26px) scale(.3);
+    transition: transform .4s cubic-bezier(.34, 1.56, .64, 1), opacity .25s ease;
+  }
+  .adicionar:hover .campeoes img, .adicionar:focus-within .campeoes img { opacity: 1; }
+  .adicionar:hover .campeoes img:nth-child(1), .adicionar:focus-within .campeoes img:nth-child(1) { transform: translate(6px, -6px) rotate(-16deg) scale(1); transition-delay: .00s; }
+  .adicionar:hover .campeoes img:nth-child(2), .adicionar:focus-within .campeoes img:nth-child(2) { transform: translate(2px, -20px) rotate(-8deg) scale(1); transition-delay: .04s; }
+  .adicionar:hover .campeoes img:nth-child(3), .adicionar:focus-within .campeoes img:nth-child(3) { transform: translate(0, -28px) rotate(-2deg) scale(1); transition-delay: .08s; }
+  .adicionar:hover .campeoes img:nth-child(4), .adicionar:focus-within .campeoes img:nth-child(4) { transform: translate(0, -28px) rotate(2deg) scale(1); transition-delay: .12s; }
+  .adicionar:hover .campeoes img:nth-child(5), .adicionar:focus-within .campeoes img:nth-child(5) { transform: translate(-2px, -20px) rotate(8deg) scale(1); transition-delay: .16s; }
+  .adicionar:hover .campeoes img:nth-child(6), .adicionar:focus-within .campeoes img:nth-child(6) { transform: translate(-6px, -6px) rotate(16deg) scale(1); transition-delay: .20s; }
   @media (prefers-reduced-motion: reduce) {
-    .botao, .cartao, select, input { transition: none; }
-    main, .descer, ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
-    /* Sem revezamento: ficam dois painéis parados, sem piscar nada. */
-    .painel { animation: none; }
-    .painel.a, .painel.b { opacity: .9; }
+    .botao, .campeoes img { transition: none; }
+    .conteudo, ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
   }
 
-  @media (max-width: 620px) {
-    /* As quebras de linha do título são desenho para tela larga; no celular
-       elas sobrariam numa quarta linha torta, então o texto quebra sozinho. */
-    br.so-largo { display: none; }
-    .heroi h1 { text-wrap: balance; }
-    .cartao { padding: 19px; }
-    .previa-msg { padding: 13px; }
-    .marca { font-size: .85rem; letter-spacing: .18em; }
+  /* Linha de campo: rótulo de largura fixa + controle ocupando o resto, pra
+     os campos ficarem alinhados entre si dentro do cartão. */
+  .interruptor { display: flex; align-items: center; gap: 9px; font-size: .92rem; font-weight: 600; margin: 0 0 14px; cursor: pointer; }
+  .campo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 10px; }
+  .campo > span { color: var(--texto-fraco); font-size: .85rem; min-width: 132px; }
+  .campo select { flex: 1; min-width: 200px; }
+
+  /* appearance:none tira o botão de seta que o sistema desenha (no Windows ele
+     aparece como uma caixa cinza que destoa do resto); a seta abaixo é nossa. */
+  select {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    font: inherit; font-size: .88rem; color: var(--texto); cursor: pointer;
+    padding: 9px 36px 9px 12px;
+    border: 1px solid var(--borda); border-radius: 10px;
+    background-color: var(--fundo-suave);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237f93a6' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center; background-size: 13px;
+    transition: border-color .15s ease, background-color .15s ease;
   }
+  select:hover { border-color: var(--destaque); background-color: var(--superficie); }
+  select:focus-visible { outline: 2px solid var(--destaque); outline-offset: 2px; border-color: var(--destaque); }
+  option { background: var(--superficie); color: var(--texto); }
+
+  input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    width: 19px; height: 19px; flex: none; margin: 0; cursor: pointer;
+    border: 2px solid var(--borda); border-radius: 6px;
+    background: var(--fundo-suave);
+    transition: background-color .15s ease, border-color .15s ease;
+  }
+  input[type="checkbox"]:hover { border-color: var(--destaque); }
+  input[type="checkbox"]:checked {
+    background-color: var(--destaque); border-color: var(--destaque);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: center; background-size: 15px;
+  }
+  input[type="checkbox"]:focus-visible { outline: 2px solid var(--destaque); outline-offset: 2px; }
+
+  .aviso, .fraco { color: var(--texto-fraco); font-size: .88rem; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 16px 0; }
+  .tile { background: var(--superficie); border: 1px solid var(--borda); border-radius: 12px; padding: 14px; text-align: center; }
+  .tile strong { display: block; font-size: 1.5rem; line-height: 1.2; }
+  .tile span { color: var(--texto-fraco); font-size: .8rem; }
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .78rem; background: var(--neutro); color: var(--texto-fraco); }
+  .tag.ok { background: var(--destaque); color: var(--destaque-texto); }
+  .tag.atencao { background: var(--alerta); color: #1a1205; }
+  .noticias { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 14px; }
+  .noticia {
+    display: flex; align-items: flex-start; gap: 10px; margin: 0; cursor: pointer;
+    padding: 10px 12px; border: 1px solid var(--borda); border-radius: 10px;
+    background: var(--fundo-suave); font-weight: 400;
+  }
+  .noticia:hover { border-color: var(--destaque); }
+  .noticia > span { display: flex; flex-direction: column; gap: 2px; }
+  .noticia strong { font-size: .9rem; font-weight: 600; }
+  .noticia input[type="radio"] { flex: none; margin-top: 3px; accent-color: var(--destaque); width: 16px; height: 16px; }
+  .banner {
+    display: inline-block; padding: 12px 18px; border-radius: 12px;
+    font-weight: 700; background: var(--destaque); color: var(--destaque-texto);
+  }
+  .banner.atencao { background: var(--alerta); color: #1a1205; }
+  .rodape { text-align: center; color: var(--texto-fraco); font-size: .9rem; padding-top: 20px; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 6px; }
 `;
 
-function layout(titulo, corpo, opcoes = {}) {
-  const classeMain = opcoes.cheio ? "cheio" : "conteudo";
+function layout(titulo, corpo) {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="/favicon.webp" type="image/webp">
-<link rel="preconnect" href="https://lolstatic-a.akamaihd.net" crossorigin>
 <title>${escapar(titulo)}</title>
-<style>${FONTES}${ESTILO}</style>
+<style>${ESTILO}</style>
 <script>
   // Antes de pintar a tela, senão o tema claro pisca escuro ao carregar.
   try { var t = localStorage.getItem("tema"); if (t) document.documentElement.dataset.tema = t; } catch (e) {}
@@ -524,14 +284,11 @@ function layout(titulo, corpo, opcoes = {}) {
 <body>
 <header class="topo">
   <a class="marca" href="/"><img src="/favicon.webp" alt=""> Ward</a>
-  <div class="topo-dir">
-    <a class="topo-link" href="/dashboard">Painel</a>
-    <button class="tema" type="button" id="alternar-tema" aria-label="Alternar tema claro e escuro">
-      <span class="lua">${ICONE_LUA}</span><span class="sol">${ICONE_SOL}</span>
-    </button>
-  </div>
+  <button class="tema" type="button" id="alternar-tema" aria-label="Alternar tema claro e escuro">
+    <span class="lua">${ICONE_LUA}</span><span class="sol">${ICONE_SOL}</span>
+  </button>
 </header>
-<main class="${classeMain}">
+<main class="conteudo">
 ${corpo}
 </main>
 <script>
@@ -543,37 +300,6 @@ ${corpo}
     raiz.dataset.tema = escuroAgora ? "claro" : "escuro";
     try { localStorage.setItem("tema", raiz.dataset.tema); } catch (e) {}
   });
-
-  // O vídeo de fundo só ganha fonte aqui, nunca no HTML. O celular também
-  // roda, com o corte vertical; quem fica só no poster é quem pediu isso no
-  // próprio aparelho: modo de economia de dados, rede 2G ou menos animação.
-  (function () {
-    var v = document.getElementById("video-fundo");
-    if (!v) return;
-    var rede = navigator.connection || {};
-    if (
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
-      rede.saveData === true ||
-      /(^|-)2g$/.test(rede.effectiveType || "")
-    ) return;
-    var s = document.createElement("source");
-    s.src = (v.dataset.base || "/hero") + ".mp4"; s.type = "video/mp4";
-    v.appendChild(s);
-    v.load();
-
-    // O autoplay é recusado quando a aba abre em segundo plano, e aí fica só
-    // o poster parado. Tenta de novo quando o vídeo fica pronto e quando a
-    // aba volta a aparecer.
-    function tocar() {
-      var p = v.play();
-      if (p && p.catch) p.catch(function () {});
-    }
-    tocar();
-    v.addEventListener("canplay", tocar);
-    document.addEventListener("visibilitychange", function () {
-      if (!document.hidden && v.paused) tocar();
-    });
-  })();
 </script>
 </body>
 </html>`;
@@ -581,169 +307,74 @@ ${corpo}
 
 // As funções abaixo devolvem só o conteúdo da página; quem coloca o esqueleto
 // (cabeçalho, estilo, alternador de tema) é o paginaHtml, uma única vez.
-export function paginaHtml(titulo, corpo, opcoes = {}) {
-  return new Response(layout(titulo, corpo, opcoes), {
+export function paginaHtml(titulo, corpo) {
+  return new Response(layout(titulo, corpo), {
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 }
 
-const RODAPE_LEGAL = `Ward isn't endorsed by Riot Games and doesn't reflect the
-views or opinions of Riot Games or anyone officially involved in producing or
-managing Riot Games properties. Riot Games and all associated properties are
-trademarks or registered trademarks of Riot Games, Inc.`;
-
-function rodape() {
-  return `
-    <footer class="rodape">
-      <a href="/privacidade">Política de privacidade</a> · <a href="/termos">Termos de uso</a>
-      <p class="legal">${RODAPE_LEGAL}</p>
-    </footer>
-  `;
-}
-
 export function landing(clientId) {
-  const campeoes = CAMPEOES_VITRINE.map(
+  const campeoes = CAMPEOES_ALEGRES.map(
     (nome) =>
-      `<img src="https://ddragon.leagueoflegends.com/cdn/${VERSAO_ARTE}/img/champion/${nome}.png" alt="" width="38" height="38" loading="lazy">`
+      `<img src="https://ddragon.leagueoflegends.com/cdn/${VERSAO_ARTE}/img/champion/${nome}.png" alt="" loading="lazy">`
   ).join("");
 
   return `
-    <section class="heroi">
-      <div class="heroi-midia">
-        <video id="video-fundo" class="heroi-video"
-               autoplay muted loop playsinline preload="none"
-               disablepictureinpicture aria-hidden="true" tabindex="-1"></video>
-        <script>
-          // Em retrato o vídeo deitado, em object-fit:cover, mostraria só uma
-          // fatia estreita do meio — por isso existe um corte 9:16 à parte.
-          // Esta escolha fica aqui, colada no elemento, e não no script do fim
-          // da página: um atributo poster no HTML começaria a baixar a imagem
-          // errada antes de qualquer script rodar.
-          (function () {
-            var v = document.getElementById("video-fundo");
-            v.dataset.base = window.innerHeight > window.innerWidth ? "/hero-mobile" : "/hero";
-            v.poster = v.dataset.base + ".jpg";
-          })();
-        </script>
-        <div class="heroi-paineis" aria-hidden="true">
-          <figure class="painel a"><img src="/p-patch.webp" alt="" width="591" height="128"></figure>
-          <figure class="painel b"><img src="/p-site.webp" alt="" width="900" height="278"></figure>
-          <figure class="painel c"><img src="/p-rotacao.webp" alt="" width="664" height="72"></figure>
-          <figure class="painel d"><img src="/p-noticia.webp" alt="" width="505" height="391"></figure>
-        </div>
-        <div class="heroi-veu"></div>
+    <div class="tela-inicial">
+    <div class="heroi">
+      <h1>Todo servidor de League of Legends precisa de um ping dessa ward.</h1>
+      <p class="subtitulo">Avisa quando sai patch novo de League of Legends e
+      mostra a rotação grátis semanal de campeões (no canal que você escolher).</p>
+      <div class="acoes">
+        <span class="adicionar">
+          <span class="campeoes" aria-hidden="true">${campeoes}</span>
+          <a class="botao" href="${convite(clientId)}">Me adicione!</a>
+        </span>
+        <a class="botao ouro" href="#funcoes">Saiba mais</a>
+        <a class="botao secundario" href="/dashboard">Painel de controle</a>
       </div>
-      <div class="heroi-dentro">
-        <p class="sobrancelha">Bot de Discord · League of Legends</p>
-        <!-- O espaço antes de cada <br> é necessário: no celular o <br> some
-             (display:none) e sem ele as palavras encostariam uma na outra.
-             Em tela larga esse espaço cai no fim da linha e não aparece. -->
-        <h1>Seu servidor <br class="so-largo">nunca mais perde <br class="so-largo">o patch novo</h1>
-        <div class="ornamento"><i></i></div>
-        <p class="subtitulo">O Ward vigia as publicações da Riot e avisa no canal que
-        você escolher: patch novo, notícias oficiais e a rotação grátis da semana.</p>
-        <div class="acoes">
-          <a class="botao" href="${convite(clientId)}">Adicionar ao Discord</a>
-          <a class="botao vazado" href="#funcoes">Ver o que ele faz</a>
-        </div>
-      </div>
-      <a class="descer" href="#funcoes" aria-label="Ver o que o bot faz"></a>
-    </section>
+    </div>
 
-    <section class="faixa" id="funcoes">
-      <div class="limite">
-        <div class="titulo-secao">
-          <h2>Três avisos, zero esforço</h2>
-          <div class="ornamento"><i></i></div>
-        </div>
-        <div class="grade">
-          <article class="cartao">
-            <span class="numero">01</span>
-            <h3>Patch novo</h3>
-            <p>Assim que a Riot publica um patch, o Ward posta a versão e o resumo
-            oficial das novidades traduzido para português, com link para as notas
-            completas.</p>
-          </article>
-          <article class="cartao">
-            <span class="numero">02</span>
-            <h3>Notícias oficiais</h3>
-            <p>CBLOL e outros esports, skins, atualizações do jogo e comunicados —
-            direto do site oficial em português, sem passar por tradução de máquina.</p>
-          </article>
-          <article class="cartao">
-            <span class="numero">03</span>
-            <h3>Rotação semanal</h3>
-            <p>A lista de campeões grátis da semana numa mensagem enxuta, com o
-            ícone de cada campeão. Na hora que muda ou num horário fixo do dia.</p>
-          </article>
-        </div>
+    <div id="funcoes">
+      <div class="cartao">
+        <h2>Aviso de patch novo</h2>
+        <p>Assim que a Riot publica um patch, o Ward posta a versão e o resumo
+        oficial das novidades traduzido para português, com link para as notas
+        completas.</p>
       </div>
-    </section>
-
-    <section class="faixa escura">
-      <div class="limite">
-        <div class="titulo-secao">
-          <h2>É isso que chega no canal</h2>
-          <div class="ornamento"><i></i></div>
-        </div>
-        <div class="previa">
-          <div class="previa-barra">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18"/></svg>
-            avisos-lol
-          </div>
-          <div class="previa-msg">
-            <img class="previa-avatar" src="/favicon.webp" alt="" width="38" height="38">
-            <div>
-              <p class="previa-nome">Ward <span class="previa-tag">BOT</span><span class="previa-hora">hoje às 09:00</span></p>
-              <div class="previa-embed">
-                <strong>Rotação grátis desta semana</strong>
-                <div class="previa-campeoes">${campeoes}</div>
-                <p class="previa-rodape">Disponíveis para todo mundo até a próxima terça.</p>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div class="cartao">
+        <h2>Rotação semanal</h2>
+        <p>A lista de campeões grátis da semana, numa mensagem enxuta com o
+        ícone de cada campeão.</p>
       </div>
-    </section>
-
-    <section class="faixa">
-      <div class="limite">
-        <div class="titulo-secao">
-          <h2>Comandos</h2>
-          <div class="ornamento"><i></i></div>
-        </div>
-        <div class="comandos">
-          <div class="comando"><code>/patch</code><span>o patch atual</span></div>
-          <div class="comando"><code>/rotacao</code><span>os campeões grátis</span></div>
-          <div class="comando"><code>/dashboard</code><span>o link de configuração</span></div>
-        </div>
+      <div class="cartao">
+        <h2>Comandos</h2>
+        <p><code>/patch</code> mostra o patch atual, <code>/rotacao</code> mostra
+        os campeões grátis e <code>/dashboard</code> devolve o link de
+        configuração do seu servidor.</p>
       </div>
-    </section>
-
-    <section class="faixa escura">
-      <div class="limite centro">
+      <div class="cartao">
         <h2>Configuração sem código</h2>
-        <p class="aviso" style="max-width:520px;margin:0 auto 26px">Adicione o bot,
-        entre no painel com sua conta do Discord e escolha o canal de cada aviso.
-        Dá para postar na hora ou marcar um horário fixo diário.</p>
-        <div class="acoes centro">
-          <a class="botao" href="${convite(clientId)}">Adicionar ao Discord</a>
-          <a class="botao vazado" href="/dashboard">Abrir o painel</a>
-        </div>
+        <p>Depois de adicionar o bot, entre no painel com sua conta do Discord,
+        escolha o canal de cada aviso e pronto. Dá para postar na hora ou
+        marcar um horário fixo diário.</p>
       </div>
-    </section>
+      <p class="rodape"><a href="#">fechar</a></p>
+    </div>
 
-    ${rodape()}
+    <p class="rodape">
+      <a href="/privacidade">Política de privacidade</a> · <a href="/termos">Termos de uso</a>
+    </p>
+    </div>
   `;
 }
 
 export function precisaLogar() {
   return `
-    <div class="centro">
+    <div class="heroi">
       <h1>Precisa entrar primeiro</h1>
-      <div class="ornamento"><i></i></div>
-      <p class="aviso">Entre com sua conta do Discord para ver os servidores que você administra.</p>
-      <p><a class="botao" href="/login">Entrar com Discord</a></p>
+      <p class="subtitulo">Entre com sua conta do Discord para ver os servidores que você administra.</p>
+      <div class="acoes"><a class="botao" href="/login">Entrar com Discord</a></div>
     </div>
   `;
 }
@@ -753,24 +384,21 @@ export function listaServidores(servidores, clientId, ehDono) {
     ? servidores
         .map(
           (s) =>
-            `<div class="cartao centro"><h3>${escapar(s.name)}</h3><p><a class="botao discreto" href="/dashboard/${s.id}">Configurar</a></p></div>`
+            `<div class="cartao centro"><h2>${escapar(s.name)}</h2><a class="botao" href="/dashboard/${s.id}">Configurar</a></div>`
         )
         .join("")
     : `<div class="cartao centro"><p>O Ward ainda não está em nenhum servidor que você administra.</p>
-       <p><a class="botao" href="${convite(clientId)}">Adicionar ao Discord</a></p></div>`;
+       <a class="botao" href="${convite(clientId)}">Me adicione!</a></div>`;
 
   // O link do painel de uso só aparece para a conta dona do bot.
   const linkUso = ehDono
-    ? `<p class="centro"><a class="botao vazado discreto" href="/admin/uso">Painel de uso</a></p>`
+    ? `<p class="centro"><a class="botao secundario" href="/admin/uso">Painel de uso</a></p>`
     : "";
 
   return `
-    <div class="centro">
-      <h1>Seus servidores</h1>
-      <div class="ornamento"><i></i></div>
-    </div>
+    <h1 class="centro">Seus servidores</h1>
     ${itens}
-    <p class="centro"><a class="botao vazado discreto" href="${convite(clientId)}">Adicionar em outro servidor</a></p>
+    <p class="centro"><a class="botao secundario" href="${convite(clientId)}">Adicionar em outro servidor</a></p>
     ${linkUso}
   `;
 }
@@ -797,11 +425,14 @@ const STATUS_DE_ATENCAO = new Set([
 // A Riot exige URLs públicas de política de privacidade e termos de uso pra
 // aprovar a API key. O conteúdo abaixo descreve exatamente o que o bot faz
 // hoje — se as funções mudarem, estas páginas têm que mudar junto.
-const AVISO_RIOT = RODAPE_LEGAL;
+const AVISO_RIOT = `Ward isn't endorsed by Riot Games and doesn't reflect the
+views or opinions of Riot Games or anyone officially involved in producing or
+managing Riot Games properties. Riot Games and all associated properties are
+trademarks or registered trademarks of Riot Games, Inc.`;
 
 export function paginaPrivacidade() {
   return `
-    <a class="voltar" href="/">← início</a>
+    <p><a href="/">← início</a></p>
     <h1>Política de privacidade</h1>
     <p class="aviso">Atualizada em 30 de setembro de 2026.</p>
 
@@ -863,7 +494,7 @@ export function paginaPrivacidade() {
 
 export function paginaTermos() {
   return `
-    <a class="voltar" href="/">← início</a>
+    <p><a href="/">← início</a></p>
     <h1>Termos de uso</h1>
     <p class="aviso">Atualizados em 30 de setembro de 2026.</p>
 
@@ -972,7 +603,7 @@ export function paginaUso(servidores, configs, uso) {
     : "";
 
   return `
-    <a class="voltar" href="/">← início</a>
+    <p><a href="/">← início</a></p>
     <h1>Uso do Ward</h1>
     <div class="tiles">
       ${tile(servidores.length, "servidores")}
@@ -991,11 +622,10 @@ export function paginaUso(servidores, configs, uso) {
 // tela branca "Error 1101", que não diz nada pra quem está usando.
 export function paginaErro() {
   return `
-    <div class="centro">
+    <div class="heroi">
       <h1>Deu problema aqui do meu lado</h1>
-      <div class="ornamento"><i></i></div>
-      <p class="aviso">Alguma coisa quebrou ao montar essa página. Tenta de novo em instantes.</p>
-      <p><a class="botao" href="/dashboard">Voltar pro painel</a></p>
+      <p class="subtitulo">Alguma coisa quebrou ao montar essa página. Tenta de novo em instantes.</p>
+      <div class="acoes"><a class="botao" href="/dashboard">Voltar pro painel</a></div>
     </div>
   `;
 }
@@ -1031,7 +661,7 @@ function previaNoticias(servidor, noticias) {
   return `
     <p class="fraco">Últimas notícias publicadas:</p>
     <div class="noticias">${itens}</div>
-    <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-noticia">Postar notícia selecionada</button>
+    <button class="botao secundario" type="submit" formaction="/dashboard/${servidor.id}/postar-noticia">Postar notícia selecionada</button>
   `;
 }
 
@@ -1063,7 +693,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
       : "";
 
   return `
-    <a class="voltar" href="/dashboard">← voltar</a>
+    <p><a href="/dashboard">← voltar</a></p>
     <h1>${escapar(servidor.name)}</h1>
     ${bannerSalvo}${bannerStatus}
     <form method="POST">
@@ -1075,7 +705,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
         </label>
         <label class="campo"><span>Canal</span><select name="patch_channel_id">${opcoesCanais(config.patch_channel_id)}</select></label>
         <p class="fraco">Avisa só quando sai patch novo (a cada duas semanas, mais ou menos).</p>
-        <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-patch">Postar patch agora</button>
+        <button class="botao secundario" type="submit" formaction="/dashboard/${servidor.id}/postar-patch">Postar patch agora</button>
       </div>
       <div class="cartao">
         <h2>Notícias oficiais</h2>
@@ -1096,7 +726,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
         </label>
         <label class="campo"><span>Canal</span><select name="rotation_channel_id">${opcoesCanais(config.rotation_channel_id)}</select></label>
         <label class="campo"><span>Horário fixo diário</span><select name="rotation_daily_hour">${opcoesHorario(config.rotation_daily_hour)}</select></label>
-        <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-rotacao">Postar rotação agora</button>
+        <button class="botao secundario" type="submit" formaction="/dashboard/${servidor.id}/postar-rotacao">Postar rotação agora</button>
       </div>
       <button class="botao" type="submit">Salvar</button>
     </form>

@@ -503,9 +503,7 @@ async function rotear(request, env, ctx) {
     }
 
     if (url.pathname === "/" && request.method === "GET") {
-      // cheio: a inicial é a única página sem a coluna estreita — o hero com
-      // o vídeo ocupa a largura toda da tela.
-      return paginaHtml("Ward", landing(env.DISCORD_CLIENT_ID), { cheio: true });
+      return paginaHtml("Ward", landing(env.DISCORD_CLIENT_ID));
     }
 
     // Páginas públicas exigidas pela Riot pra aprovar a Production API Key.
