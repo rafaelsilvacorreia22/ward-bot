@@ -242,6 +242,15 @@ async function checarRotacao(env, apenasGuild) {
     return { mudou: false, erro: err.message };
   }
 
+  // Guarda a rotação para a vitrine da inicial. Só grava quando a chave da
+  // Riot respondeu — assim, com a chave vencida, a página continua mostrando
+  // a última lista boa em vez de ficar vazia.
+  await salvarEstado(
+    env,
+    "vitrine_rotacao",
+    JSON.stringify(campeoes.filter((c) => c.arquivoImagem).map((c) => ({ nome: c.nome, img: c.arquivoImagem })))
+  ).catch(() => {});
+
   // Assinatura da lista (não "semana ISO"): a rotação não segue semana cheia.
   const assinatura = campeoes.map((c) => c.nome).sort().join("|");
   const anterior = await pegarEstado(env, "last_rotation_signature");
@@ -288,6 +297,20 @@ async function checarNoticias(env, apenasGuild) {
     console.log("Não consegui buscar as notícias:", err.message);
     return { erro: err.message };
   }
+
+  // Guarda as mais recentes para a vitrine da página inicial. Fica aqui
+  // porque é o único lugar que já busca as notícias — a inicial lê do banco e
+  // não dispara requisição nenhuma para o site da Riot.
+  await salvarEstado(
+    env,
+    "vitrine_noticias",
+    JSON.stringify(
+      noticias
+        .slice(-3)
+        .reverse()
+        .map((n) => ({ titulo: n.titulo, categoria: n.categoria, data: n.data, imagem: n.imagem, url: n.url }))
+    )
+  ).catch(() => {});
 
   const todos = await listarNoticiasAtiva(env);
   const alvos = (apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos).filter(
@@ -407,6 +430,33 @@ async function checarPostagensDiarias(env, apenasGuild) {
   }
 
   return { rotacao: alvosRotacao.length };
+}
+
+// Dados que a página inicial usa como vitrine (patch atual, rotação da semana
+// e últimas notícias). Vem tudo do que o cron já guardou no banco: a inicial
+// nunca chama a Riot nem o site do LoL. É decoração — se faltar, a página sai
+// sem ela, nunca quebra.
+async function montarVitrine(env) {
+  const comoLista = (texto) => {
+    try {
+      const valor = JSON.parse(texto ?? "null");
+      return Array.isArray(valor) ? valor : [];
+    } catch {
+      return [];
+    }
+  };
+
+  try {
+    const [patch, rotacao, noticias] = await Promise.all([
+      pegarEstado(env, "last_patch_version"),
+      pegarEstado(env, "vitrine_rotacao"),
+      pegarEstado(env, "vitrine_noticias"),
+    ]);
+    return { patch, campeoes: comoLista(rotacao), noticias: comoLista(noticias) };
+  } catch (err) {
+    console.log("Não consegui montar a vitrine da inicial:", err.message);
+    return null;
+  }
 }
 
 // Sobe o ícone de cada campeão como emoji do aplicativo (não de um servidor),
@@ -536,7 +586,9 @@ async function rotear(request, env, ctx) {
     }
 
     if (url.pathname === "/" && request.method === "GET") {
-      return paginaHtml("Ward", landing(env.DISCORD_CLIENT_ID));
+      // O design atual ignora o segundo argumento; quem usa é a vitrine do
+      // update-2.0. Fica aqui para a troca de design ser um arquivo só.
+      return paginaHtml("Ward", landing(env.DISCORD_CLIENT_ID, await montarVitrine(env)));
     }
 
     // Páginas públicas exigidas pela Riot pra aprovar a Production API Key.
