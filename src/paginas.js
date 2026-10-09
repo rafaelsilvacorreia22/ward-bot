@@ -267,11 +267,39 @@ const ESTILO = `
        do vídeo. */
     will-change: opacity, transform;
   }
-  .painel img { display: block; width: 100%; height: auto; }
-  .painel.a { left: 3.5%;  top: 17%;    width: min(330px, 25vw); }
-  .painel.b { right: 3.5%; top: 14%;    width: min(400px, 29vw); animation-delay: 3s; }
-  .painel.c { left: 3.5%;  bottom: 17%; width: min(330px, 25vw); animation-delay: 9s; }
-  .painel.d { right: 5%;   bottom: 11%; width: min(205px, 16vw); animation-delay: 13s; }
+  .painel.a { left: 3.5%;  top: 17%;    width: min(340px, 25vw); background: #313338; }
+  .painel.b { right: 3.5%; top: 14%;    width: min(400px, 29vw); background: #fff; animation-delay: 3s; }
+  .painel.c { left: 3.5%;  bottom: 17%; width: min(360px, 27vw); background: #313338; animation-delay: 9s; }
+  .painel.d { right: 5%;   bottom: 11%; width: min(215px, 17vw); background: #313338; animation-delay: 13s; }
+
+  /* Conteúdo dos painéis. Cor do Discord nos cartões de mensagem e o branco
+     do site oficial na grade de notícias: os dois são retratos de onde a
+     informação aparece de verdade, então pintá-los de dourado mentiria sobre
+     o resultado. Só as imagens que sangram na largura é que esticam — ícone
+     de campeão e avatar têm tamanho próprio. */
+  .dc { display: flex; gap: 10px; padding: 11px 12px; }
+  .dc-avatar { flex: none; width: 34px; height: 34px; border-radius: 50%; background: #1e1f22; }
+  .dc-corpo { flex: 1; min-width: 0; }
+  .dc-nome { color: #f2f3f5; font-size: .78rem; font-weight: 600; margin: 0 0 5px; }
+  .dc-tag { background: #5865f2; color: #fff; font-size: .54rem; font-weight: 700; padding: 1px 4px; border-radius: 3px; margin-left: 4px; vertical-align: 2px; letter-spacing: .02em; }
+  .dc-texto { color: #dbdee1; font-size: .76rem; font-weight: 600; margin: 0 0 6px; }
+  .dc-embed { border-left: 3px solid #c8aa6e; background: #2b2d31; padding: 8px 10px; }
+  .dc-embed strong { display: block; color: #f2f3f5; font-size: .76rem; font-weight: 600; line-height: 1.35; }
+  .dc-img { display: block; width: 100%; height: auto; margin-top: 7px; }
+  .dc-rodape { color: #949ba4; font-size: .6rem; margin: 6px 0 0; }
+  .dc-campeoes { display: flex; flex-wrap: wrap; gap: 3px; }
+  .dc-campeoes img { width: 26px; height: 26px; border: 1px solid #c8aa6e; background: #1e1f22; }
+
+  .site-grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; padding: 10px; }
+  .site-card { margin: 0; min-width: 0; }
+  .site-card img { display: block; width: 100%; height: auto; }
+  .site-cat { color: #a9833c; font-size: .5rem; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; margin: 6px 0 2px; }
+  /* Três linhas no máximo: título de notícia da Riot às vezes é bem longo e
+     sem isto um cartão estica e desalinha a grade inteira. */
+  .site-titulo {
+    color: #111; font-size: .63rem; font-weight: 700; line-height: 1.3; margin: 0;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
   /* Aparece, fica ~4,5s e some — os quatro em revezamento num ciclo de 20s. */
   @keyframes painel-passa {
     0%        { opacity: 0; transform: translateY(16px); }
@@ -601,11 +629,83 @@ function rodape() {
   `;
 }
 
-export function landing(clientId) {
-  const campeoes = CAMPEOES_VITRINE.map(
-    (nome) =>
-      `<img src="https://ddragon.leagueoflegends.com/cdn/${VERSAO_ARTE}/img/champion/${nome}.png" alt="" width="38" height="38" loading="lazy">`
-  ).join("");
+export function landing(clientId, vitrine) {
+  const patch = vitrine?.patch || VERSAO_ARTE;
+  const rotacao = Array.isArray(vitrine?.campeoes) ? vitrine.campeoes : [];
+  const noticias = Array.isArray(vitrine?.noticias) ? vitrine.noticias : [];
+
+  const iconeCampeao = (c, tamanho) =>
+    `<img src="https://ddragon.leagueoflegends.com/cdn/${escapar(patch)}/img/champion/${escapar(c.img)}.png"` +
+    ` alt="${escapar(c.nome ?? "")}" title="${escapar(c.nome ?? "")}" width="${tamanho}" height="${tamanho}" loading="lazy">`;
+
+  // A prévia da mensagem no Discord mostra a rotação de verdade. Se a chave
+  // da Riot estiver vencida e nunca tiver havido uma boa, cai no elenco fixo
+  // só para a seção não ficar vazia.
+  // Painéis que flutuam atrás do título. Antes eram prints congelados de
+  // 05/10/2026, que envelheciam; agora são montados com o que o cron acabou
+  // de ver. Cada um só entra se houver dado — nada de moldura vazia.
+  const mensagemBot = (conteudo) => `
+      <div class="dc">
+        <img class="dc-avatar" src="/favicon.webp" alt="" width="34" height="34">
+        <div class="dc-corpo">
+          <p class="dc-nome">Ward <span class="dc-tag">BOT</span></p>
+          ${conteudo}
+        </div>
+      </div>`;
+
+  const paineis = [];
+
+  if (patch) {
+    paineis.push(
+      `<figure class="painel a">${mensagemBot(
+        `<div class="dc-embed"><strong>Saiu o patch ${escapar(patch)}!</strong></div>`
+      )}</figure>`
+    );
+  }
+
+  if (noticias.length) {
+    const cartoes = noticias
+      .slice(0, 3)
+      .map(
+        (n) => `
+            <article class="site-card">
+              ${n.imagem ? `<img src="${escapar(n.imagem)}" alt="" loading="lazy">` : ""}
+              <p class="site-cat">${escapar(n.categoria ?? "Notícias")}</p>
+              <p class="site-titulo">${escapar(n.titulo ?? "")}</p>
+            </article>`
+      )
+      .join("");
+    paineis.push(`<figure class="painel b"><div class="site-grade">${cartoes}</div></figure>`);
+  }
+
+  if (rotacao.length) {
+    paineis.push(
+      `<figure class="painel c">${mensagemBot(
+        `<p class="dc-texto">Rotação grátis da semana:</p>
+          <div class="dc-campeoes">${rotacao.slice(0, 10).map((c) => iconeCampeao(c, 26)).join("")}</div>`
+      )}</figure>`
+    );
+  }
+
+  const destaque = noticias[0];
+  if (destaque) {
+    paineis.push(
+      `<figure class="painel d">${mensagemBot(
+        `<div class="dc-embed">
+            <strong>${escapar(destaque.titulo ?? "")}</strong>
+            ${destaque.imagem ? `<img class="dc-img" src="${escapar(destaque.imagem)}" alt="" loading="lazy">` : ""}
+            <p class="dc-rodape">${escapar(destaque.categoria ?? "Notícias")}</p>
+          </div>`
+      )}</figure>`
+    );
+  }
+
+  const campeoes = rotacao.length
+    ? rotacao.slice(0, 10).map((c) => iconeCampeao(c, 38)).join("")
+    : CAMPEOES_VITRINE.map(
+        (nome) =>
+          `<img src="https://ddragon.leagueoflegends.com/cdn/${VERSAO_ARTE}/img/champion/${nome}.png" alt="" width="38" height="38" loading="lazy">`
+      ).join("");
 
   return `
     <section class="heroi">
@@ -625,12 +725,7 @@ export function landing(clientId) {
             v.poster = v.dataset.base + ".jpg";
           })();
         </script>
-        <div class="heroi-paineis" aria-hidden="true">
-          <figure class="painel a"><img src="/p-patch.webp" alt="" width="591" height="128"></figure>
-          <figure class="painel b"><img src="/p-site.webp" alt="" width="900" height="278"></figure>
-          <figure class="painel c"><img src="/p-rotacao.webp" alt="" width="664" height="72"></figure>
-          <figure class="painel d"><img src="/p-noticia.webp" alt="" width="505" height="391"></figure>
-        </div>
+        <div class="heroi-paineis" aria-hidden="true">${paineis.join("")}</div>
         <div class="heroi-veu"></div>
       </div>
       <div class="heroi-dentro">
