@@ -215,6 +215,14 @@ export async function salvarUltimaMensagemRotacao(env, guildId, canalId, mensage
     .run();
 }
 
+// O cache do roster é guardado com a versão do patch na chave; depois de
+// gravar a nova, as antigas não servem mais pra nada.
+export async function limparCacheCampeoesAntigo(env, chaveAtual) {
+  await env.DB.prepare("DELETE FROM bot_state WHERE key LIKE 'campeoes\\_%' ESCAPE '\\' AND key != ?")
+    .bind(chaveAtual)
+    .run();
+}
+
 export async function pegarEstado(env, chave) {
   const linha = await env.DB.prepare("SELECT value FROM bot_state WHERE key = ?")
     .bind(chave)

@@ -2,14 +2,29 @@
 // rotação semanal de campeões grátis (precisa de chave — ver README sobre a
 // Personal API Key da Riot expirar sozinha a cada 24h).
 
+import { pegarEstado, salvarEstado, limparCacheCampeoesAntigo } from "./db.js";
+
 const DDRAGON = "https://ddragon.leagueoflegends.com";
 const RIOT_API = "https://br1.api.riotgames.com";
 
+// Uma rodada do cron chamava versaoAtual() duas ou três vezes (checarPatch,
+// a rotação e, quando há horário diário, a rotação de novo), sempre com a
+// mesma resposta. O cache é curto de propósito: o checarPatch depende de ver
+// a versão mudar, e um cache longo faria o bot perder o anúncio do patch.
+const VALIDADE_VERSAO_MS = 60_000;
+let versaoEmCache = null;
+let versaoValidaAte = 0;
+
 export async function versaoAtual() {
+  if (versaoEmCache && Date.now() < versaoValidaAte) return versaoEmCache;
+
   const res = await fetch(`${DDRAGON}/api/versions.json`);
   if (!res.ok) throw new Error(`Data Dragon (versions) -> ${res.status}`);
   const versoes = await res.json();
-  return versoes[0];
+
+  versaoEmCache = versoes[0];
+  versaoValidaAte = Date.now() + VALIDADE_VERSAO_MS;
+  return versaoEmCache;
 }
 
 // Link genérico de reserva (sempre existe, sempre mostra o patch mais recente
@@ -57,15 +72,39 @@ export async function resumoPatchEmIngles(versao) {
 
 // Usado pelo /admin/emojis pra saber o roster completo (pra subir o ícone de
 // cada campeão como emoji do app).
-export async function todosOsCampeoes(versao) {
-  return Object.values(await campeoesPorId(versao));
+export async function todosOsCampeoes(env, versao) {
+  return Object.values(await campeoesPorId(env, versao));
 }
 
 export function urlIconeCampeao(versao, arquivoImagem) {
   return `${DDRAGON}/cdn/${versao}/img/champion/${arquivoImagem}.png`;
 }
 
-async function campeoesPorId(versao) {
+// O champion.json tem ~155 KB e só muda quando muda o patch (a cada duas
+// semanas), mas era baixado inteiro a cada rodada do cron — ~15 MB por dia à
+// toa. Agora o mapa reduzido (só os três campos que o bot usa, uns 7 KB)
+// fica guardado no banco com a versão na chave, e em memória enquanto o
+// isolate viver. Falha de cache nunca derruba a busca: cai para a rede.
+const mapaEmMemoria = new Map();
+
+async function campeoesPorId(env, versao) {
+  const emMemoria = mapaEmMemoria.get(versao);
+  if (emMemoria) return emMemoria;
+
+  const chave = `campeoes_${versao}`;
+  if (env?.DB) {
+    try {
+      const guardado = await pegarEstado(env, chave);
+      if (guardado) {
+        const mapa = JSON.parse(guardado);
+        mapaEmMemoria.set(versao, mapa);
+        return mapa;
+      }
+    } catch (err) {
+      console.log("Cache de campeões ilegível, buscando de novo:", err.message);
+    }
+  }
+
   const res = await fetch(`${DDRAGON}/cdn/${versao}/data/en_US/champion.json`);
   if (!res.ok) throw new Error(`Data Dragon (champion.json) -> ${res.status}`);
   const dados = await res.json();
@@ -75,6 +114,18 @@ async function campeoesPorId(versao) {
     // Wukong), diferente de "name" (nome de exibição) e "key" (id numérico).
     porId[campeao.key] = { nome: campeao.name, arquivoImagem: campeao.id };
   }
+  mapaEmMemoria.set(versao, porId);
+
+  if (env?.DB) {
+    try {
+      await salvarEstado(env, chave, JSON.stringify(porId));
+      // Só a versão atual interessa — sem isso sobraria uma linha por patch.
+      await limparCacheCampeoesAntigo(env, chave);
+    } catch (err) {
+      console.log("Não consegui guardar o cache de campeões:", err.message);
+    }
+  }
+
   return porId;
 }
 
@@ -107,7 +158,7 @@ export async function rotacaoAtual(env) {
   }
 
   const versao = await versaoAtual();
-  const porId = await campeoesPorId(versao);
+  const porId = await campeoesPorId(env, versao);
   return ids.map((id) => {
     const campeao = porId[id];
     return { nome: campeao?.nome ?? `#${id}`, arquivoImagem: campeao?.arquivoImagem ?? null };

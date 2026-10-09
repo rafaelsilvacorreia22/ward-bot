@@ -6,6 +6,8 @@
 // montar a listagem. O "buildId" dessa URL muda a cada publicação do site,
 // então é lido da página antes de cada busca, em vez de ficar fixo no código.
 
+import { pegarEstado, salvarEstado } from "./db.js";
+
 const SITE = "https://www.leagueoflegends.com";
 const CABECALHO_NAVEGADOR = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
@@ -36,16 +38,41 @@ function limparHtml(texto) {
     .trim();
 }
 
-// Retorna as notícias recentes, da mais antiga para a mais nova (é nessa
-// ordem que elas devem ser postadas, pra o canal ficar cronológico).
-export async function buscarNoticias() {
-  const buildId = await buildIdAtual();
+// Busca a lista usando um buildId já conhecido. Devolve null quando esse id
+// venceu (o site responde erro nessa URL) — assim quem chamou sabe que é só
+// redescobrir, e não uma falha de verdade.
+async function listaComBuildId(buildId) {
   const res = await fetch(`${SITE}/_next/data/${buildId}/pt-br/news.json`, {
     headers: CABECALHO_NAVEGADOR,
   });
-  if (!res.ok) throw new Error(`Lista de notícias -> ${res.status}`);
+  if (!res.ok) return null;
+  return extrairNoticias(await res.json());
+}
 
-  const dados = await res.json();
+// Retorna as notícias recentes, da mais antiga para a mais nova (é nessa
+// ordem que elas devem ser postadas, pra o canal ficar cronológico).
+//
+// A página de notícias tem ~494 KB e era baixada inteira a cada rodada do
+// cron só para ler o buildId dela — quase 50 MB por dia só nisso. Agora o
+// buildId fica guardado e a página só é buscada de novo quando ele vence,
+// o que acontece quando a Riot publica.
+export async function buscarNoticias(env) {
+  const guardado = env ? await pegarEstado(env, "news_build_id").catch(() => null) : null;
+  if (guardado) {
+    const lista = await listaComBuildId(guardado);
+    if (lista) return lista;
+  }
+
+  const buildId = await buildIdAtual();
+  const lista = await listaComBuildId(buildId);
+  if (!lista) throw new Error("Lista de notícias -> não respondeu nem com buildId recém-descoberto");
+  if (env && buildId !== guardado) {
+    await salvarEstado(env, "news_build_id", buildId).catch(() => {});
+  }
+  return lista;
+}
+
+function extrairNoticias(dados) {
   const blocos = dados?.pageProps?.page?.blades ?? [];
   // Procura o bloco da listagem em vez de usar índice fixo: a ordem dos
   // blocos da página muda conforme a Riot mexe no layout.

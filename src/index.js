@@ -292,7 +292,7 @@ const MAXIMO_NOTICIAS_POR_RODADA = 3;
 async function checarNoticias(env, apenasGuild) {
   let noticias;
   try {
-    noticias = await buscarNoticias();
+    noticias = await buscarNoticias(env);
   } catch (err) {
     console.log("Não consegui buscar as notícias:", err.message);
     return { erro: err.message };
@@ -466,7 +466,7 @@ async function montarVitrine(env) {
 // pula quem já tem emoji.
 async function subirEmojisFaltantes(env, limite = 20) {
   const versao = await versaoAtual();
-  const campeoes = await todosOsCampeoes(versao);
+  const campeoes = await todosOsCampeoes(env, versao);
   const { appId, emojis } = await listarEmojisDoApp(env);
   const jaTem = new Set(emojis.map((e) => e.name));
 
@@ -699,7 +699,7 @@ async function rotear(request, env, ctx) {
         status = "sem_noticia";
       } else {
         try {
-          const noticias = await buscarNoticias();
+          const noticias = await buscarNoticias(env);
           const noticia = noticias.find((n) => n.url === escolhida);
           if (!noticia) throw new Error("notícia fora da lista atual");
 
@@ -759,7 +759,7 @@ async function rotear(request, env, ctx) {
         listarCanaisTexto(env, guildId),
         // A prévia é um extra: se o site da Riot não responder, a página de
         // configuração continua funcionando normalmente, só sem a lista.
-        buscarNoticias().catch((err) => {
+        buscarNoticias(env).catch((err) => {
           console.log("Não carreguei a prévia de notícias:", err.message);
           return [];
         }),
@@ -809,8 +809,18 @@ export default {
   async scheduled(evento, env, ctx) {
     ctx.waitUntil(
       (async () => {
+        // O cron roda de 15 em 15 min porque o horário fixo diário precisa
+        // dessa precisão. As notícias não: o site publica ~0,6 artigo por dia
+        // e cada busca custa ~390 KB, então checar nos 96 disparos diários era
+        // baixar dezenas de MB para quase nunca achar algo. Meia hora de
+        // atraso no pior caso não muda nada para quem lê.
+        const minuto = new Date(evento.scheduledTime ?? Date.now()).getUTCMinutes();
+        const vezDasNoticias = minuto < 15 || (minuto >= 30 && minuto < 45);
+
         const patch = await checarPatch(env).catch((err) => ({ erro: err.message }));
-        const noticias = await checarNoticias(env).catch((err) => ({ erro: err.message }));
+        const noticias = vezDasNoticias
+          ? await checarNoticias(env).catch((err) => ({ erro: err.message }))
+          : { pulado: true };
         const rotacao = await checarRotacao(env).catch((err) => ({ erro: err.message }));
         const diarias = await checarPostagensDiarias(env).catch((err) => ({ erro: err.message }));
         console.log("cron:", JSON.stringify({ patch, noticias, rotacao, diarias }));
