@@ -1,0 +1,29 @@
+Fontes hospedadas aqui e de onde vieram
+=======================================
+
+BigShoulders.woff2
+---------------------------------------
+Big Shoulders Display, por Patric King (House Industries / Kerns & Cairns).
+E uma fonte VARIAVEL: este arquivo unico carrega o eixo de peso inteiro, por
+isso e declarado com "font-weight: 100 900" em vez de um arquivo por peso.
+Distribuida sob a SIL Open Font License, Version 1.1, que permite usar,
+estudar, modificar e redistribuir a fonte, inclusive embutida em site.
+Obtidas do Google Fonts, subconjunto latin.
+
+Texto completo da licenca: https://scripts.sil.org/OFL
+Origem: https://fonts.google.com/specimen/Big+Shoulders+Display
+
+
+Spiegel-Regular.woff
+Spiegel-SemiBold.woff
+---------------------------------------
+Spiegel, da Riot Games. E a fonte de texto do proprio League of Legends,
+baixada da CDN publica da Riot (lolstatic-a.akamaihd.net).
+
+Usada aqui dentro da mesma politica de conteudo de fa que ja cobre os icones
+de campeao vindos do Data Dragon: o Ward e um projeto de fa, gratuito e sem
+fins lucrativos. Ver o aviso legal no rodape do site.
+
+Se a Riot pedir para retirar, basta apagar estes dois arquivos e as duas
+regras @font-face correspondentes em src/paginas.js — o site cai no fallback
+do sistema e continua funcionando.
