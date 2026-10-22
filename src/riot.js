@@ -135,8 +135,17 @@ export async function rotacaoAtual(env) {
   const chave = (env.RIOT_API_KEY ?? "").trim();
   if (!chave) throw new Error("RIOT_API_KEY não configurada");
 
+  // O fetch de um Worker pode guardar resposta GET de terceiro na cache da
+  // Cloudflare. A rotação é justamente o tipo de dado que não pode vir de
+  // cache — a suspeita é que era isso que a congelava: 200, sem erro, e a
+  // mesma lista byte a byte por 12 dias seguidos.
+  //
+  // Só "cache: no-store", sem o cf.cacheTtl: a Cloudflare recusa os dois
+  // juntos ("CacheTtl: 0, is not compatible with cache: no-store header") e
+  // a chamada inteira passa a falhar.
   const res = await fetch(`${RIOT_API}/lol/platform/v3/champion-rotations`, {
     headers: { "X-Riot-Token": chave },
+    cache: "no-store",
   });
   const bruto = await res.text();
   if (!res.ok) {
@@ -149,12 +158,40 @@ export async function rotacaoAtual(env) {
   } catch {
     throw new Error(`Riot API (rotação) devolveu algo que não é JSON: ${bruto.slice(0, 300)}`);
   }
-  // A resposta mudou de formato em algum momento sem aviso: o campo com a
-  // rotação do Summoner's Rift se chama "sr" agora (documentação antiga da
-  // Riot ainda fala em "freeChampionIds").
-  const ids = dados.sr ?? dados.freeChampionIds;
+  // Medido em 21/10/2026: a resposta tem só "sr" e "newplayer" — o
+  // "freeChampionIds" da documentação antiga NÃO vem mais. Então "sr" é o
+  // campo certo mesmo; fica o documentado como reserva caso a Riot volte
+  // atrás, e não o contrário.
+  const ids =
+    Array.isArray(dados.sr) && dados.sr.length ? dados.sr : dados.freeChampionIds;
   if (!Array.isArray(ids)) {
     throw new Error(`Riot API (rotação) em formato inesperado: ${bruto.slice(0, 300)}`);
+  }
+
+  // Medido em 21/10/2026: br1, na1 e euw1 devolvem a MESMA lista, então o
+  // congelamento não é da plataforma brasileira — é do endpoint inteiro. A
+  // sonda que comparava as três regiões foi removida depois de responder;
+  // ela triplicava as chamadas à Riot a cada 15 minutos.
+
+  // Registro de diagnóstico: formato da resposta e, principalmente, os
+  // cabeçalhos de cache. Se vier "cf-cache-status: HIT" com idade alta, a
+  // lista congelada é cache e não a Riot. Nada aqui expõe a chave.
+  if (env?.DB) {
+    await salvarEstado(
+      env,
+      "rotacao_formato",
+      JSON.stringify({
+        chaves: Object.keys(dados),
+        sr: Array.isArray(dados.sr) ? dados.sr : null,
+        cache: {
+          cfCacheStatus: res.headers.get("cf-cache-status"),
+          age: res.headers.get("age"),
+          cacheControl: res.headers.get("cache-control"),
+          date: res.headers.get("date"),
+        },
+        em: new Date().toISOString(),
+      })
+    ).catch(() => {});
   }
 
   const versao = await versaoAtual();

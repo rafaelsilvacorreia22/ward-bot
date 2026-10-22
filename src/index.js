@@ -239,21 +239,40 @@ async function checarRotacao(env, apenasGuild) {
     ({ campeoes, corpo } = await construirMensagemRotacao(env));
   } catch (err) {
     console.log("Rotação indisponível no cron:", err.message);
+    // A falha fica GRAVADA, não só no console. Era só console.log, e foi
+    // por isso que a rotação pôde envelhecer duas semanas sem ninguém
+    // perceber: o site seguia mostrando a última lista boa como se fosse a
+    // da semana. Diferente dos outros erros, este não é de um servidor —
+    // é da fonte — então mora no bot_state, não na guild_config.
+    await salvarEstado(env, "rotacao_erro", String(err.message ?? "").slice(0, 300)).catch(() => {});
+    await salvarEstado(env, "rotacao_erro_em", new Date().toISOString()).catch(() => {});
     return { mudou: false, erro: err.message };
   }
 
-  // Guarda a rotação para a vitrine da inicial. Só grava quando a chave da
-  // Riot respondeu — assim, com a chave vencida, a página continua mostrando
-  // a última lista boa em vez de ficar vazia.
+  // Guarda a rotação para a vitrine da inicial, junto com a hora em que foi
+  // obtida — é esse carimbo que deixa a página saber se a lista ainda vale
+  // ou se está velha demais para ser anunciada como "desta semana".
   await salvarEstado(
     env,
     "vitrine_rotacao",
     JSON.stringify(campeoes.filter((c) => c.arquivoImagem).map((c) => ({ nome: c.nome, img: c.arquivoImagem })))
   ).catch(() => {});
+  await salvarEstado(env, "vitrine_rotacao_em", new Date().toISOString()).catch(() => {});
+  // Voltou a responder: limpa o erro para o painel parar de acusar.
+  await salvarEstado(env, "rotacao_erro", "").catch(() => {});
 
   // Assinatura da lista (não "semana ISO"): a rotação não segue semana cheia.
   const assinatura = campeoes.map((c) => c.nome).sort().join("|");
   const anterior = await pegarEstado(env, "last_rotation_signature");
+
+  // Carimbo de quando a LISTA mudou — diferente de quando a busca aconteceu.
+  // Essa distinção é o ponto: em 10/2026 a busca vinha dando certo de 15 em
+  // 15 minutos enquanto o conteúdo estava parado havia 12 dias, e nada
+  // media isso. "Última busca" não prova que a rotação está girando.
+  if (assinatura !== anterior) {
+    await salvarEstado(env, "rotacao_mudou_em", new Date().toISOString()).catch(() => {});
+  }
+
   if (assinatura === anterior && !apenasGuild) return { mudou: false };
 
   const todos = await listarRotacaoAtiva(env);
@@ -447,12 +466,21 @@ async function montarVitrine(env) {
   };
 
   try {
-    const [patch, rotacao, noticias] = await Promise.all([
+    const [patch, rotacao, noticias, mudouEm] = await Promise.all([
       pegarEstado(env, "last_patch_version"),
       pegarEstado(env, "vitrine_rotacao"),
       pegarEstado(env, "vitrine_noticias"),
+      pegarEstado(env, "rotacao_mudou_em"),
     ]);
-    return { patch, campeoes: comoLista(rotacao), noticias: comoLista(noticias) };
+    return {
+      patch,
+      campeoes: comoLista(rotacao),
+      noticias: comoLista(noticias),
+      // Idade da LISTA, não da busca. Era esse o erro da primeira tentativa:
+      // a busca é bem-sucedida de 15 em 15 minutos mesmo quando a resposta
+      // está congelada, então "última busca" sempre parecia fresca.
+      rotacaoDias: mudouEm ? (Date.now() - new Date(mudouEm).getTime()) / 86400000 : null,
+    };
   } catch (err) {
     console.log("Não consegui montar a vitrine da inicial:", err.message);
     return null;
@@ -538,12 +566,22 @@ async function rotear(request, env, ctx) {
           return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
         }
       }
-      const [servidores, configs, uso] = await Promise.all([
-        listarServidoresDoBot(env),
-        listarTodasConfigs(env),
-        listarUsoComandos(env),
-      ]);
-      return paginaHtml("Uso do Ward", paginaUso(servidores, configs, uso));
+      const [servidores, configs, uso, rotacaoErro, rotacaoErroEm, rotacaoEm, rotacaoMudouEm] =
+        await Promise.all([
+          listarServidoresDoBot(env),
+          listarTodasConfigs(env),
+          listarUsoComandos(env),
+          pegarEstado(env, "rotacao_erro"),
+          pegarEstado(env, "rotacao_erro_em"),
+          pegarEstado(env, "vitrine_rotacao_em"),
+          pegarEstado(env, "rotacao_mudou_em"),
+        ]);
+      // A falha da fonte da rotação não é de nenhum servidor em particular,
+      // então entra aqui como estado global do bot.
+      return paginaHtml(
+        "Uso do Ward",
+        paginaUso(servidores, configs, uso, { rotacaoErro, rotacaoErroEm, rotacaoEm, rotacaoMudouEm })
+      );
     }
 
     // Alinha o estado com a realidade sem postar nada (ver sincronizarEstado).
@@ -586,9 +624,13 @@ async function rotear(request, env, ctx) {
     }
 
     if (url.pathname === "/" && request.method === "GET") {
-      // O design atual ignora o segundo argumento; quem usa é a vitrine do
-      // update-2.0. Fica aqui para a troca de design ser um arquivo só.
-      return paginaHtml("Ward", landing(env.DISCORD_CLIENT_ID, await montarVitrine(env)));
+      // cheio: a inicial é a única página sem a coluna estreita — o hero e as
+      // faixas de seção ocupam a largura toda da tela.
+      return paginaHtml(
+        "Ward",
+        landing(env.DISCORD_CLIENT_ID, await montarVitrine(env)),
+        { cheio: true }
+      );
     }
 
     // Páginas públicas exigidas pela Riot pra aprovar a Production API Key.
