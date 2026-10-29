@@ -14,33 +14,38 @@ import {
 import { traduzirParaPtBr } from "./traducao.js";
 import { MODOS, ROTAS, FRAGMENTOS, buscarBuild, dadosDoJogo } from "./builds.js";
 
+const CAMPEAO = { type: 3, name: "campeao", description: "Campeão", required: true, autocomplete: true };
+const ROTA = {
+  type: 3,
+  name: "rota",
+  description: "Rota (padrão: a mais jogada com o campeão)",
+  required: false,
+  choices: Object.entries(ROTAS).map(([valor, nome]) => ({ name: nome, value: valor })),
+};
+
 export const DEFINICOES = [
   { name: "patch", description: "Mostra a versão mais recente do League of Legends" },
   {
     name: "build",
     description: "A build que mais ganha no meta atual para um campeão",
+    // Um subcomando por modo: o Discord não esconde opção dinamicamente, e o
+    // ARAM não tem rota — então ele é um subcomando sem a opção "rota".
     options: [
-      { type: 3, name: "campeao", description: "Campeão", required: true, autocomplete: true },
-      {
-        type: 3,
-        name: "modo",
-        description: "Modo de jogo (padrão: ranqueada)",
-        required: false,
-        choices: Object.entries(MODOS).map(([valor, m]) => ({ name: m.nome, value: valor })),
-      },
-      {
-        type: 3,
-        name: "rota",
-        description: "Rota na ranqueada (padrão: a mais jogada com o campeão)",
-        required: false,
-        choices: Object.entries(ROTAS).map(([valor, nome]) => ({ name: nome, value: valor })),
-      },
+      { type: 1, name: "ranqueada", description: "Build na Ranqueada Solo/Duo", options: [CAMPEAO, ROTA] },
+      { type: 1, name: "flex", description: "Build na Ranqueada Flex", options: [CAMPEAO, ROTA] },
+      { type: 1, name: "aram", description: "Build no ARAM", options: [CAMPEAO] },
     ],
   },
   { name: "dashboard", description: "Link pra configurar o Ward neste servidor" },
 ];
 
-const opcao = (interacao, nome) => interacao.data.options?.find((o) => o.name === nome)?.value;
+// Modo de cada subcomando do /build.
+const MODO_DO_SUBCOMANDO = { ranqueada: "ranked", flex: "flex", aram: "aram" };
+
+// As opções chegam aninhadas dentro do subcomando: options[0] = { name:
+// "aram", options: [{ name: "campeao", value: "Fizz" }] }.
+const subcomando = (interacao) => interacao.data.options?.[0];
+const opcao = (interacao, nome) => subcomando(interacao)?.options?.find((o) => o.name === nome)?.value;
 
 export const porcentagem = (taxa) => `${(taxa * 100).toFixed(1).replace(".", ",")}%`;
 const milhar = (n) => n.toLocaleString("pt-BR");
@@ -181,8 +186,8 @@ export const COMANDOS = {
     efemera: false,
     async executar(env, interacao, origin) {
       const texto = opcao(interacao, "campeao");
-      const modo = MODOS[opcao(interacao, "modo")] ? opcao(interacao, "modo") : "ranked";
-      const rota = opcao(interacao, "rota");
+      const modo = MODO_DO_SUBCOMANDO[subcomando(interacao)?.name] ?? "ranked";
+      const rota = modo === "aram" ? undefined : opcao(interacao, "rota");
 
       const campeao = await acharCampeao(env, texto);
       if (!campeao) {
@@ -225,7 +230,7 @@ export const COMANDOS = {
     // Sugestões enquanto a pessoa digita. Tem que responder em menos de 3s,
     // então só usa o roster já em cache (memória ou banco).
     async autocompletar(env, interacao) {
-      const digitado = normalizarNome(interacao.data.options?.find((o) => o.focused)?.value);
+      const digitado = normalizarNome(subcomando(interacao)?.options?.find((o) => o.focused)?.value);
       const campeoes = await todosOsCampeoes(env, await versaoAtual());
       const sugestoes = campeoes
         .filter((c) => !digitado || normalizarNome(c.nome).includes(digitado))

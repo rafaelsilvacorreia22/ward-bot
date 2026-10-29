@@ -916,7 +916,7 @@ export function landing(clientId, vitrine) {
           ${funcao(
             "03",
             "Build do meta",
-            `Digite <code>/build</code> e o campeão: itens, runas, feitiços e
+            `Digite <code>/build</code>, escolha o modo e o campeão: itens, runas, feitiços e
              ordem de habilidades que mais ganham, a partir de dezenas de
              milhares de partidas por campeão (dados do OP.GG), na ranqueada
              ou no ARAM. Atualiza sozinho
@@ -951,7 +951,7 @@ export function landing(clientId, vitrine) {
             <img class="previa-avatar" src="/favicon.webp" alt="" width="38" height="38">
             <div>
               <p class="previa-nome">Ward <span class="previa-tag">BOT</span><span class="previa-hora">hoje às 09:00</span></p>
-              <p class="previa-comando">usou <code>/build ${escapar(build.campeao.nome)}</code></p>
+              <p class="previa-comando">usou <code>/build ranqueada ${escapar(build.campeao.nome)}</code></p>
               <div class="previa-embed">
                 <strong>${escapar(tituloPrevia)}</strong>
                 <p class="previa-rotulo">Build principal + botas</p>
