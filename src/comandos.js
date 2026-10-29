@@ -12,7 +12,7 @@ import {
   urlIconeCampeao,
 } from "./riot.js";
 import { traduzirParaPtBr } from "./traducao.js";
-import { MODOS, ROTAS, montarBuild, dadosDoJogo, patchPublico } from "./builds.js";
+import { MODOS, ROTAS, FRAGMENTOS, buscarBuild, dadosDoJogo } from "./builds.js";
 
 export const DEFINICOES = [
   { name: "patch", description: "Mostra a versão mais recente do League of Legends" },
@@ -45,6 +45,12 @@ const opcao = (interacao, nome) => interacao.data.options?.find((o) => o.name ==
 export const porcentagem = (taxa) => `${(taxa * 100).toFixed(1).replace(".", ",")}%`;
 const milhar = (n) => n.toLocaleString("pt-BR");
 
+// Número público do patch (o Data Dragon fica 10 atrás: 16.21 = 26.21).
+export function patchPublico(versao) {
+  const [major, minor] = String(versao).split(".");
+  return `${Number(major) + 10}.${minor}`;
+}
+
 // Item repetido vira "2× Poção" em vez de aparecer duas vezes.
 function contarIguais(ids) {
   const contagem = new Map();
@@ -63,28 +69,29 @@ export function embedDaBuild({ campeao, build, dados, emojis, versao, origin }) 
 
   const campos = [];
   if (build.inicio) {
-    const itens = contarIguais(build.inicio.chave.split(",").map(Number))
+    const itens = contarIguais(build.inicio.ids)
       .map(([id, n]) => `${n > 1 ? `${n}× ` : ""}${item(id)}`)
       .join("\n");
     campos.push({ name: "Itens iniciais", value: itens, inline: true });
   }
   if (build.botas) {
-    campos.push({ name: "Botas", value: `${item(build.botas.chave)}\n${estatistica(build.botas)}`, inline: true });
+    campos.push({ name: "Botas", value: `${build.botas.ids.map(item).join("\n")}\n${estatistica(build.botas)}`, inline: true });
   }
   if (build.nucleo) {
     campos.push({
       name: "Build principal",
-      value: `${build.nucleo.itens.map(item).join("  ➜  ")}\n${estatistica(build.nucleo)}`,
+      value: `${build.nucleo.ids.map(item).join("  ➜  ")}\n${estatistica(build.nucleo)}`,
     });
   }
-  if (build.extras.length) {
+  ["4º item", "5º item", "6º item"].forEach((titulo, i) => {
+    const lista = build.extras[i] ?? [];
+    if (!lista.length) return;
     campos.push({
-      name: "Do 4º item em diante",
-      value: build.extras
-        .map((e) => `${item(e.id)} · ${porcentagem(e.taxa)} em ${milhar(e.jogos)}`)
-        .join("\n"),
+      name: `${titulo} (opções)`,
+      value: lista.map((o) => `${o.ids.map(item).join(" + ")} · ${porcentagem(o.taxa)}`).join("\n"),
+      inline: true,
     });
-  }
+  });
   if (build.runas) {
     const r = build.runas;
     campos.push({
@@ -92,28 +99,32 @@ export function embedDaBuild({ campeao, build, dados, emojis, versao, origin }) 
       value:
         `**${dados.runas[r.primario]?.nome ?? ""}:** ${r.runasPrimarias.map(runa).join(" · ")}\n` +
         `**${dados.runas[r.secundario]?.nome ?? ""}:** ${r.runasSecundarias.map(runa).join(" · ")}\n` +
-        `**Fragmentos:** ${r.fragmentos.join(" · ")}\n${estatistica(r)}`,
+        `**Fragmentos:** ${r.fragmentos.map((id) => FRAGMENTOS[id] ?? id).join(" · ")}\n${estatistica(r)}`,
     });
   }
   if (build.feiticos) {
-    campos.push({ name: "Feitiços", value: build.feiticos.chave.split(",").map(feitico).join("\n"), inline: true });
+    campos.push({ name: "Feitiços", value: build.feiticos.ids.map(feitico).join("\n"), inline: true });
   }
   if (build.habilidades) {
     const h = build.habilidades;
     campos.push({
       name: "Habilidades",
-      value: `Maximizar **${h.ordem.replace(/>/g, " > ")}**${h.primeiras ? `\nComeça ${h.primeiras.split("").join(" → ")}` : ""}`,
+      value:
+        `Maximizar **${h.ordem.replace(/>/g, " > ")}**` +
+        (h.sequencia ? `\n\`${h.sequencia.split("").join(" ")}\`` : "") +
+        `\n${estatistica(h)}`,
       inline: true,
     });
   }
 
-  const modo = MODOS[build.fila];
+  const modo = MODOS[build.modo];
   const rota = build.rota ? ` · ${ROTAS[build.rota] ?? build.rota}` : "";
+  // Outras rotas só aparecem se forem jogadas de verdade (5% das partidas).
+  const total = build.rotas.reduce((s, r) => s + r.jogos, 0);
   const outras = build.rotas
-    .filter((r) => r.rota && r.rota !== build.rota && r.jogos >= 20)
-    .map((r) => ROTAS[r.rota] ?? r.rota);
-  const patches = build.patches.map(patchPublico).join(" e ");
-  const link = `${origin}/build/${encodeURIComponent(campeao.arquivoImagem)}?modo=${build.fila}${
+    .filter((r) => ROTAS[r.rota] && r.rota !== build.rota && r.jogos >= total * 0.05)
+    .map((r) => ROTAS[r.rota]);
+  const link = `${origin}/build/${encodeURIComponent(campeao.arquivoImagem)}?modo=${build.modo}${
     build.rota ? `&rota=${build.rota}` : ""
   }`;
 
@@ -123,12 +134,15 @@ export function embedDaBuild({ campeao, build, dados, emojis, versao, origin }) 
     color: 0xc8a24a,
     thumbnail: { url: urlIconeCampeao(versao, campeao.arquivoImagem) },
     description:
-      `**${porcentagem(build.taxa)}** de vitória em **${milhar(build.jogos)}** partidas de Grão-Mestre+ no BR.` +
+      `**${porcentagem(build.taxa)}** de vitória em **${milhar(build.jogos)}** partidas` +
+      (build.tier ? ` · Tier ${build.tier}` : "") +
       (outras.length ? `\nTambém jogado em: ${outras.join(", ")} — use a opção \`rota\`.` : ""),
     fields: campos,
-    footer: { text: `Patch ${patches} · atualiza sozinho conforme o meta` },
+    footer: { text: `Dados: OP.GG · patch ${patchPublico(versao)} · atualiza sozinho conforme o meta` },
   };
 }
+
+
 
 export const COMANDOS = {
   // Busca o resumo oficial do patch e traduz — duas chamadas de rede além da
@@ -160,15 +174,14 @@ export const COMANDOS = {
     },
   },
 
-  // Lê do banco o que a coleta já juntou (ver builds.js) — não chama a Riot
-  // na hora. Adiado mesmo assim porque agrega alguns milhares de linhas e
-  // ainda lista os emojis.
+  // Busca no OP.GG (ou no cache de 6h — ver buscarBuild). Adiado porque a
+  // API deles leva uns 4 segundos quando a build não está em cache.
   build: {
     adiar: true,
     efemera: false,
     async executar(env, interacao, origin) {
       const texto = opcao(interacao, "campeao");
-      const fila = Number(opcao(interacao, "modo") ?? 420);
+      const modo = MODOS[opcao(interacao, "modo")] ? opcao(interacao, "modo") : "ranked";
       const rota = opcao(interacao, "rota");
 
       const campeao = await acharCampeao(env, texto);
@@ -178,8 +191,16 @@ export const COMANDOS = {
       }
 
       const versao = await versaoAtual();
-      const [build, dados, emojis] = await Promise.all([
-        montarBuild(env, campeao.id, fila, rota),
+      let build;
+      try {
+        build = await buscarBuild(env, campeao, modo, rota);
+      } catch (err) {
+        await editarResposta(interacao, {
+          content: "Não consegui buscar a build agora (o OP.GG não respondeu). Tenta de novo em instantes.",
+        });
+        return;
+      }
+      const [dados, emojis] = await Promise.all([
         dadosDoJogo(env, versao),
         // Sem emoji a build sai só com os nomes — não vale derrubar a resposta.
         mapaDeEmojis(env).catch((err) => {
@@ -189,10 +210,9 @@ export const COMANDOS = {
       ]);
 
       if (!build || !build.jogos) {
+        const onde = rota ? ` na rota ${ROTAS[rota]}` : "";
         await editarResposta(interacao, {
-          content:
-            `Ainda estou juntando partidas de **${campeao.nome}** em ${MODOS[fila].nome}. ` +
-            "A coleta roda sozinha o tempo todo — tenta de novo daqui a pouco.",
+          content: `Não há partidas suficientes de **${campeao.nome}**${onde} em ${MODOS[modo].nome} neste patch.`,
         });
         return;
       }

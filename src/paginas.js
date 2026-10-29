@@ -1,6 +1,8 @@
 // Templates HTML simples, sem framework e sem build — só strings com um
 // escape básico pra evitar XSS a partir de nomes de servidor/canal.
 
+import { FRAGMENTOS } from "./builds.js";
+
 function escapar(texto) {
   return String(texto).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
@@ -18,7 +20,7 @@ function convite(clientId) {
 // Arte decorativa da página inicial. Qualquer versão serve: o Data Dragon
 // mantém as antigas para sempre, então isto não precisa acompanhar o patch.
 const VERSAO_ARTE = "16.19.1";
-// Build de exemplo da prévia do /build na inicial, usada só enquanto a coleta
+// Build de exemplo da prévia do /build na inicial, usada só enquanto a build
 // ainda não juntou amostra para a build do dia de verdade.
 const BUILD_EXEMPLO = {
   campeao: { nome: "Ahri", img: "Ahri" },
@@ -819,7 +821,7 @@ export function landing(clientId, vitrine) {
   const noticias = Array.isArray(vitrine?.noticias) ? vitrine.noticias : [];
 
   // A build do dia vem pronta do cron (ver atualizarVitrineBuild). Sem ela
-  // — coleta recém-ligada —, a prévia usa um exemplo fixo e o bloco "ao
+  // — OP.GG fora do ar —, a prévia usa um exemplo fixo e o bloco "ao
   // vivo" simplesmente não aparece, em vez de fingir que é dado real.
   const buildReal = vitrine?.build?.itens?.length ? vitrine.build : null;
   const build = buildReal ?? BUILD_EXEMPLO;
@@ -834,7 +836,7 @@ export function landing(clientId, vitrine) {
   const itensPrevia = build.itens.map((id) => iconeItem(id, 38)).join("");
   const tituloPrevia = `${build.campeao.nome}${build.rota ? ` · ${NOMES_ROTA[build.rota] ?? ""}` : ""} · Ranqueada Solo/Duo`;
   const rodapePrevia = buildReal
-    ? `${porcentagem(buildReal.taxa)} de vitória em ${buildReal.jogos.toLocaleString("pt-BR")} partidas de Grão-Mestre+ no BR.`
+    ? `${porcentagem(buildReal.taxa)} de vitória em ${buildReal.jogos.toLocaleString("pt-BR")} partidas · dados OP.GG.`
     : "Itens, runas, feitiços e habilidades de quem mais ganha no BR.";
 
   // Cada função mostra o dado de verdade que o bot acabou de ver. É a
@@ -915,8 +917,9 @@ export function landing(clientId, vitrine) {
             "03",
             "Build do meta",
             `Digite <code>/build</code> e o campeão: itens, runas, feitiços e
-             ordem de habilidades de quem mais ganha nas partidas de
-             Grão-Mestre+ do BR, na ranqueada ou no ARAM. Atualiza sozinho
+             ordem de habilidades que mais ganham, a partir de dezenas de
+             milhares de partidas por campeão (dados do OP.GG), na ranqueada
+             ou no ARAM. Atualiza sozinho
              conforme o meta muda.`,
             aoVivo(
               `Build do dia · ${buildReal ? escapar(buildReal.campeao.nome) : ""}`,
@@ -1152,21 +1155,18 @@ export function paginaPrivacidade() {
 
     <div class="cartao">
       <h2>Estatísticas de build</h2>
-      <p>Para o comando <code>/build</code>, o Ward lê pela API oficial da Riot
-      partidas públicas recentes dos jogadores do topo do ranqueado brasileiro
-      (Desafiante e Grão-Mestre). De cada partida guarda só o anônimo: campeão,
-      rota, se venceu, itens, runas, feitiços e ordem de habilidades — sem nome,
-      conta ou identificador do jogador. Esses dados são apagados quando deixam
-      de ser do patch atual ou do anterior. A lista de identificadores dos
-      jogadores do topo (fornecida pela própria Riot) fica guardada por até um
-      dia, só para saber de quem buscar partidas.</p>
+      <p>As builds do comando <code>/build</code> vêm das estatísticas públicas
+      agregadas do OP.GG (taxas de vitória e escolhas mais comuns por campeão).
+      O Ward guarda só esse resultado agregado, por algumas horas, para responder
+      mais rápido. Nenhum dado de jogador é consultado nem armazenado.</p>
     </div>
 
     <div class="cartao">
       <h2>Serviços usados</h2>
       <ul>
         <li><strong>Discord</strong>: para entrar no painel e enviar as mensagens;</li>
-        <li><strong>Riot Games (Data Dragon e API)</strong>: versão do jogo, ícones e partidas para as estatísticas de build;</li>
+        <li><strong>Riot Games (Data Dragon)</strong>: versão do jogo, nomes e ícones;</li>
+        <li><strong>OP.GG</strong>: estatísticas de build;</li>
         <li><strong>leagueoflegends.com</strong>: resumo das notas do patch e as notícias oficiais em português;</li>
         <li><strong>Cloudflare</strong>: hospedagem, banco de dados e tradução do resumo do patch.</li>
       </ul>
@@ -1230,28 +1230,19 @@ export function paginaTermos() {
 export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
   const configPorGuild = new Map(configs.map((c) => [c.guild_id, c]));
 
-  // Saúde da coleta do /build. É o único estado que não pertence a um
-  // servidor específico: se a Riot recusar a chave, a build de todo mundo
-  // para de se atualizar — e isso tem que aparecer aqui, não só no log.
-  const coletado = Array.isArray(estadoGlobal.coletado) ? estadoGlobal.coletado : [];
-  const linhasColeta = coletado
-    .map(
-      (c) =>
-        `<p>${escapar(c.fila === 450 ? "ARAM" : "Ranqueada")} · patch ${Math.floor(c.patch / 100) + 10}.${c.patch % 100}:
-         <strong>${Number(c.partidas).toLocaleString("pt-BR")}</strong> partidas</p>`
-    )
-    .join("");
+  // Saúde da fonte do /build. É o único estado que não pertence a um
+  // servidor específico: se o OP.GG parar de responder, o /build de todo
+  // mundo fica preso no cache — e isso tem que aparecer aqui, não só no log.
   const painelColeta = `<div class="cartao">
-       <h2>Coleta do /build</h2>
+       <h2>Fonte do /build (OP.GG)</h2>
        ${
-         estadoGlobal.coletaErro
-           ? `<p class="banner atencao">${escapar(explicarFalha(estadoGlobal.coletaErro))}</p>
-              <p class="fraco">Falhou em ${escapar(quandoFalhou(estadoGlobal.coletaErroEm) || "?")}: ${escapar(estadoGlobal.coletaErro)}</p>`
-           : ""
+         estadoGlobal.opggErro
+           ? `<p class="banner atencao">A última consulta ao OP.GG falhou</p>
+              <p class="fraco">${escapar(quandoFalhou(estadoGlobal.opggErroEm) || "?")}: ${escapar(estadoGlobal.opggErro)}</p>`
+           : `<p class="fraco">Respondendo normalmente.</p>`
        }
-       <p class="fraco">Última rodada bem-sucedida: ${escapar(quandoFalhou(estadoGlobal.coletaOkEm) || "nenhuma ainda")}.
-       Emojis de itens/runas: ${estadoGlobal.emojisCompletos ? "completos" : "subindo aos poucos"}.</p>
-       ${linhasColeta || `<p class="fraco">Nenhuma partida coletada ainda.</p>`}
+       <p class="fraco">${Number(estadoGlobal.buildsEmCache ?? 0)} builds em cache ·
+       emojis de itens/runas: ${estadoGlobal.emojisCompletos ? "completos" : "subindo aos poucos"}.</p>
      </div>`;
 
   const usoPorGuild = new Map();
@@ -1467,8 +1458,8 @@ export function paginaListaBuilds(campeoes, versao) {
   return `
     <a class="voltar" href="/">← início</a>
     <h1>Builds do meta</h1>
-    <p class="aviso">A build que mais ganha de cada campeão, tirada das partidas de
-    Grão-Mestre+ do servidor brasileiro e atualizada sozinha conforme o meta muda.
+    <p class="aviso">A build que mais ganha de cada campeão, calculada sobre dezenas de milhares de
+    partidas do patch atual (dados do OP.GG) e atualizada sozinha conforme o meta muda.
     No Discord é só usar <code>/build</code>.</p>
     <input class="busca" id="busca" type="search" placeholder="Buscar campeão..." aria-label="Buscar campeão" autocomplete="off">
     <div class="grade-campeoes" id="grade">${itens}</div>
@@ -1485,7 +1476,7 @@ export function paginaListaBuilds(campeoes, versao) {
 
 // A build de um campeão em página, com os ícones grandes. É para onde o
 // título do embed do /build aponta.
-export function paginaBuild({ campeao, build, dados, versao, fila }) {
+export function paginaBuild({ campeao, build, dados, versao, modo }) {
   const img = (url, alt) =>
     `<img src="${escapar(url)}" alt="${escapar(alt)}" title="${escapar(alt)}" width="50" height="50" loading="lazy">`;
   const nomeItem = (id) => dados.itens[id]?.nome ?? `Item ${id}`;
@@ -1502,16 +1493,16 @@ export function paginaBuild({ campeao, build, dados, versao, fila }) {
   const estat = (op) =>
     op ? `<p class="estat"><strong>${porcentagem(op.taxa)}</strong> de vitória em ${op.jogos.toLocaleString("pt-BR")} partidas</p>` : "";
 
-  const linkPara = (modo, rota) =>
-    `/build/${encodeURIComponent(campeao.arquivoImagem)}?modo=${modo}${rota ? `&rota=${rota}` : ""}`;
-  const abaModo = (modo, nome) =>
-    `<a href="${linkPara(modo)}"><span class="tag${fila === modo ? " ok" : ""}">${nome}</span></a>`;
+  const linkPara = (m, rota) =>
+    `/build/${encodeURIComponent(campeao.arquivoImagem)}?modo=${m}${rota ? `&rota=${rota}` : ""}`;
+  const abaModo = (m, nome) => `<a href="${linkPara(m)}"><span class="tag${modo === m ? " ok" : ""}">${nome}</span></a>`;
+  const totalRotas = (build?.rotas ?? []).reduce((s, r) => s + r.jogos, 0);
   const abasRota = (build?.rotas ?? [])
-    .filter((r) => r.rota && (r.jogos >= 20 || r.rota === build.rota))
+    .filter((r) => NOMES_ROTA[r.rota] && (r.jogos >= totalRotas * 0.05 || r.rota === build.rota))
     .map(
       (r) =>
-        `<a href="${linkPara(fila, r.rota)}"><span class="tag${r.rota === build.rota ? " ok" : ""}">${escapar(
-          NOMES_ROTA[r.rota] ?? r.rota
+        `<a href="${linkPara(modo, r.rota)}"><span class="tag${r.rota === build.rota ? " ok" : ""}">${escapar(
+          NOMES_ROTA[r.rota]
         )}</span></a>`
     )
     .join("");
@@ -1524,31 +1515,39 @@ export function paginaBuild({ campeao, build, dados, versao, fila }) {
         <h1>${escapar(campeao.nome)}</h1>
         <p class="fraco">${
           build?.jogos
-            ? `${porcentagem(build.taxa)} de vitória em ${build.jogos.toLocaleString("pt-BR")} partidas de Grão-Mestre+ no BR · patch ${build.patches
-                .map((n) => `${Math.floor(n / 100) + 10}.${n % 100}`)
-                .join(" e ")}`
+            ? `${porcentagem(build.taxa)} de vitória em ${build.jogos.toLocaleString("pt-BR")} partidas${
+                build.tier ? ` · Tier ${escapar(build.tier)}` : ""
+              } · dados OP.GG`
             : "Build do meta"
         }</p>
       </div>
     </div>
-    <div class="abas">${abaModo(420, "Ranqueada Solo/Duo")}${abaModo(450, "ARAM")}</div>
+    <div class="abas">${abaModo("ranked", "Ranqueada Solo/Duo")}${abaModo("flex", "Flex")}${abaModo("aram", "ARAM")}</div>
     ${abasRota ? `<div class="abas">${abasRota}</div>` : ""}
   `;
 
   if (!build?.jogos) {
     return `${topo}
-      <div class="cartao"><p>Ainda estou juntando partidas de ${escapar(campeao.nome)} nesse modo.
-      A coleta roda sozinha o tempo todo — volta daqui a pouco.</p></div>`;
+      <div class="cartao"><p>Não consegui a build de ${escapar(campeao.nome)} nesse modo agora — ou não há
+      partidas suficientes, ou o OP.GG não respondeu. Tenta de novo em instantes.</p></div>`;
   }
 
   const contagem = new Map();
-  for (const id of build.inicio?.chave.split(",").map(Number) ?? []) contagem.set(id, (contagem.get(id) ?? 0) + 1);
+  for (const id of build.inicio?.ids ?? []) contagem.set(id, (contagem.get(id) ?? 0) + 1);
   const inicio = [...contagem.entries()].map(([id, n]) => item(id, n > 1 ? ` ×${n}` : "")).join("");
 
   const nucleo = build.nucleo
-    ? build.nucleo.itens.map((id) => item(id)).join(`<span class="seta" aria-hidden="true">➜</span>`)
+    ? build.nucleo.ids.map((id) => item(id)).join(`<span class="seta" aria-hidden="true">➜</span>`)
     : "";
-  const extras = build.extras.map((e) => item(e.id, `<br>${porcentagem(e.taxa)}`)).join("");
+  const extras = ["4º item", "5º item", "6º item"]
+    .map((titulo, i) => {
+      const lista = build.extras?.[i] ?? [];
+      if (!lista.length) return "";
+      return `<div class="cartao"><h2>${titulo}</h2><div class="linha-itens">${lista
+        .map((o) => item(o.ids[0], `<br>${porcentagem(o.taxa)}`))
+        .join("")}</div></div>`;
+    })
+    .join("");
 
   const r = build.runas;
   const runas = r
@@ -1556,13 +1555,14 @@ export function paginaBuild({ campeao, build, dados, versao, fila }) {
        <div class="linha-itens">${r.runasPrimarias.map((id, i) => runa(id, i === 0)).join("")}</div>
        <p class="fraco" style="margin-top:14px">${escapar(dados.runas[r.secundario]?.nome ?? "")}</p>
        <div class="linha-itens">${r.runasSecundarias.map((id) => runa(id)).join("")}</div>
-       <p class="fraco" style="margin-top:14px">Fragmentos: ${r.fragmentos.map(escapar).join(" · ")}</p>
+       <p class="fraco" style="margin-top:14px">Fragmentos: ${r.fragmentos
+         .map((id) => escapar(FRAGMENTOS[id] ?? id))
+         .join(" · ")}</p>
        ${estat(r)}`
     : "";
 
   const feiticos = build.feiticos
-    ? build.feiticos.chave
-        .split(",")
+    ? build.feiticos.ids
         .map((key) => {
           const f = dados.feiticos[key];
           return `<div class="item">${img(`${DDRAGON}/cdn/${versao}/img/spell/${f?.imagem ?? ""}`, f?.nome ?? "")}<span>${escapar(
@@ -1575,13 +1575,17 @@ export function paginaBuild({ campeao, build, dados, versao, fila }) {
   const h = build.habilidades;
   const habilidades = h
     ? `<p class="fraco">Maximizar</p>
-       <div class="teclas">${h.ordem.split(">").map((t) => `<span class="tecla">${t}</span>`).join("›")}</div>
+       <div class="teclas">${h.ordem.split(">").map((t) => `<span class="tecla">${escapar(t)}</span>`).join("›")}</div>
        ${
-         h.primeiras
-           ? `<p class="fraco" style="margin-top:12px">Primeiros níveis</p>
-              <div class="teclas">${h.primeiras.split("").map((t) => `<span class="tecla">${t}</span>`).join("")}</div>`
+         h.sequencia
+           ? `<p class="fraco" style="margin-top:12px">Ordem dos níveis</p>
+              <div class="teclas">${h.sequencia
+                .split("")
+                .map((t) => `<span class="tecla">${escapar(t)}</span>`)
+                .join("")}</div>`
            : ""
-       }`
+       }
+       ${estat(h)}`
     : "";
 
   const cartao = (titulo, corpo) => (corpo ? `<div class="cartao"><h2>${titulo}</h2>${corpo}</div>` : "");
@@ -1590,16 +1594,16 @@ export function paginaBuild({ campeao, build, dados, versao, fila }) {
     ${cartao("Build principal", nucleo ? `<div class="linha-itens">${nucleo}</div>${estat(build.nucleo)}` : "")}
     <div class="duas-colunas">
       ${cartao("Itens iniciais", inicio ? `<div class="linha-itens">${inicio}</div>${estat(build.inicio)}` : "")}
-      ${cartao("Botas", build.botas ? `<div class="linha-itens">${item(build.botas.chave)}</div>${estat(build.botas)}` : "")}
+      ${cartao("Botas", build.botas ? `<div class="linha-itens">${build.botas.ids.map((id) => item(id)).join("")}</div>${estat(build.botas)}` : "")}
     </div>
-    ${cartao("Do 4º item em diante", extras ? `<div class="linha-itens">${extras}</div>` : "")}
+    <div class="duas-colunas tres">${extras}</div>
     ${cartao("Runas", runas)}
     <div class="duas-colunas">
       ${cartao("Feitiços", feiticos ? `<div class="linha-itens">${feiticos}</div>${estat(build.feiticos)}` : "")}
       ${cartao("Habilidades", habilidades)}
     </div>
-    <p class="aviso">Estatística de partidas reais, recalculada a cada consulta conforme a coleta
-    avança. É sugestão, não garantia de vitória.</p>
+    <p class="aviso">Estatísticas do OP.GG sobre as partidas do patch atual, atualizadas a cada
+    poucas horas. É sugestão, não garantia de vitória.</p>
     ${rodape()}
   `;
 }

@@ -1,6 +1,6 @@
 // Entrada do Worker: rotas HTTP (landing, dashboard, OAuth, interações do
 // Discord, páginas de build) e os crons — o de 15 minutos confere patch novo
-// e notícias; o de 2 minutos coleta partidas para o /build.
+// e notícias; o de 2 minutos sobe os ícones do /build como emojis.
 
 import {
   TIPO_INTERACAO,
@@ -46,6 +46,7 @@ import {
   listarUsoComandos,
   pegarEstado,
   salvarEstado,
+  contarCacheBuild,
 } from "./db.js";
 import {
   versaoAtual,
@@ -58,11 +59,8 @@ import {
 import {
   MODOS,
   ROTAS,
-  coletarPartidas,
-  limparColetaAntiga,
-  montarBuild,
+  buscarBuild,
   dadosDoJogo,
-  totalColetado,
   urlIconeItem,
   urlIconeRuna,
   urlIconeFeitico,
@@ -72,7 +70,7 @@ import { buscarNoticias, embedDaNoticia } from "./noticias.js";
 
 // Os dois crons do wrangler.jsonc. O texto tem que bater exatamente com o de
 // lá — é por ele que o scheduled sabe qual dos dois disparou.
-const CRON_COLETA = "*/2 * * * *";
+const CRON_EMOJIS = "*/2 * * * *";
 
 const SO_NO_SERVIDOR = {
   type: RESPOSTA.MENSAGEM,
@@ -369,9 +367,8 @@ async function montarVitrine(env) {
 const VITRINE_CAMPEOES = ["Ahri", "Jinx", "LeeSin", "Fizz", "Darius", "Thresh", "Yasuo", "Kaisa", "Lux", "Garen"];
 const VITRINE_VALIDADE_MS = 3 * 60 * 60 * 1000;
 
-// Guarda pronta a build que a inicial mostra, para a página não agregar nada
-// a cada visita. Refeita a cada 3 horas, porque no começo de um patch a
-// amostra cresce rápido.
+// Guarda pronta a build que a inicial mostra, para a página não chamar o
+// OP.GG a cada visita. Refeita a cada 3 horas.
 async function atualizarVitrineBuild(env) {
   const em = await pegarEstado(env, "vitrine_build_em");
   if (em && Date.now() - new Date(em).getTime() < VITRINE_VALIDADE_MS) return { pulado: true };
@@ -380,8 +377,8 @@ async function atualizarVitrineBuild(env) {
   for (let i = 0; i < VITRINE_CAMPEOES.length; i++) {
     const campeao = await acharCampeao(env, VITRINE_CAMPEOES[(dia + i) % VITRINE_CAMPEOES.length]);
     if (!campeao) continue;
-    const build = await montarBuild(env, campeao.id, 420);
-    if (!build?.nucleo || build.jogos < 20) continue;
+    const build = await buscarBuild(env, campeao, "ranked").catch(() => null);
+    if (!build?.nucleo) continue;
     await salvarEstado(
       env,
       "vitrine_build",
@@ -390,8 +387,7 @@ async function atualizarVitrineBuild(env) {
         rota: build.rota,
         taxa: build.taxa,
         jogos: build.jogos,
-        itens: [...build.nucleo.itens, ...(build.botas ? [Number(build.botas.chave)] : [])],
-        patches: build.patches,
+        itens: [...build.nucleo.ids, ...(build.botas?.ids ?? [])],
       })
     );
     await salvarEstado(env, "vitrine_build_em", new Date().toISOString());
@@ -500,19 +496,6 @@ async function rotear(request, env, ctx) {
       }
     }
 
-    // Roda uma rodada da coleta de partidas na hora, para testar a chave da
-    // Riot sem esperar o cron.
-    if (url.pathname === "/admin/coletar") {
-      const chave = (env.SETUP_KEY ?? "").trim();
-      if (!chave || url.searchParams.get("chave") !== chave) {
-        return new Response("Chave inválida.", { status: 401 });
-      }
-      try {
-        return json({ ok: true, ...(await coletarPartidas(env)) });
-      } catch (err) {
-        return json({ ok: false, erro: err.message }, 500);
-      }
-    }
 
     // Painel de acompanhamento: onde o bot está, o que cada servidor ligou e
     // quantas vezes os comandos foram usados. Só leitura, protegido pela mesma
@@ -530,22 +513,20 @@ async function rotear(request, env, ctx) {
           return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
         }
       }
-      const [servidores, configs, uso, coletaErro, coletaErroEm, coletaOkEm, coletado, emojisCompletos] =
-        await Promise.all([
-          listarServidoresDoBot(env),
-          listarTodasConfigs(env),
-          listarUsoComandos(env),
-          pegarEstado(env, "coleta_erro"),
-          pegarEstado(env, "coleta_erro_em"),
-          pegarEstado(env, "coleta_ok_em"),
-          totalColetado(env).catch(() => []),
-          pegarEstado(env, "emojis_completos"),
-        ]);
-      // A saúde da coleta não é de nenhum servidor em particular, então
-      // entra aqui como estado global do bot.
+      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos] = await Promise.all([
+        listarServidoresDoBot(env),
+        listarTodasConfigs(env),
+        listarUsoComandos(env),
+        pegarEstado(env, "opgg_erro"),
+        pegarEstado(env, "opgg_erro_em"),
+        contarCacheBuild(env).catch(() => 0),
+        pegarEstado(env, "emojis_completos"),
+      ]);
+      // A saúde da fonte das builds não é de nenhum servidor em particular,
+      // então entra aqui como estado global do bot.
       return paginaHtml(
         "Uso do Ward",
-        paginaUso(servidores, configs, uso, { coletaErro, coletaErroEm, coletaOkEm, coletado, emojisCompletos })
+        paginaUso(servidores, configs, uso, { opggErro, opggErroEm, buildsEmCache, emojisCompletos })
       );
     }
 
@@ -599,13 +580,16 @@ async function rotear(request, env, ctx) {
     if (buildMatch && request.method === "GET") {
       const campeao = await acharCampeao(env, decodeURIComponent(buildMatch[1]));
       if (!campeao) return new Response("Campeão não encontrado.", { status: 404 });
-      const fila = MODOS[url.searchParams.get("modo")] ? Number(url.searchParams.get("modo")) : 420;
+      const modo = MODOS[url.searchParams.get("modo")] ? url.searchParams.get("modo") : "ranked";
       const rota = ROTAS[url.searchParams.get("rota")] ? url.searchParams.get("rota") : undefined;
       const versao = await versaoAtual();
-      const [build, dados] = await Promise.all([montarBuild(env, campeao.id, fila, rota), dadosDoJogo(env, versao)]);
+      const [build, dados] = await Promise.all([
+        buscarBuild(env, campeao, modo, rota).catch(() => null),
+        dadosDoJogo(env, versao),
+      ]);
       return paginaHtml(
         `${campeao.nome} — build — Ward`,
-        paginaBuild({ campeao, build, dados, versao, fila })
+        paginaBuild({ campeao, build, dados, versao, modo })
       );
     }
 
@@ -825,24 +809,13 @@ export default {
   },
 
   async scheduled(evento, env, ctx) {
-    // A coleta roda num disparo próprio, de 2 em 2 minutos: cada execução do
-    // Worker tem seu próprio limite de sub-requests e de CPU, então separar
-    // impede que a coleta coma o orçamento do aviso de patch e vice-versa.
-    if (evento.cron === CRON_COLETA) {
+    // Os emojis sobem num disparo próprio, de 2 em 2 minutos: cada execução
+    // do Worker tem seu próprio limite de sub-requests, então separar impede
+    // que o upload coma o orçamento do aviso de patch. Quando não falta
+    // nenhum, cada disparo é só uma leitura no banco.
+    if (evento.cron === CRON_EMOJIS) {
       ctx.waitUntil(
         (async () => {
-          try {
-            const coleta = await coletarPartidas(env);
-            await salvarEstado(env, "coleta_ok_em", new Date().toISOString());
-            await salvarEstado(env, "coleta_erro", "");
-            console.log("coleta:", JSON.stringify(coleta));
-          } catch (err) {
-            // Gravado, não só no console: foi a lição da rotação, que ficou
-            // parada duas semanas sem ninguém perceber.
-            console.log("Coleta falhou:", err.message);
-            await salvarEstado(env, "coleta_erro", String(err.message ?? "").slice(0, 300)).catch(() => {});
-            await salvarEstado(env, "coleta_erro_em", new Date().toISOString()).catch(() => {});
-          }
           const emojis = await sincronizarEmojis(env).catch((err) => ({ erro: err.message }));
           if (!emojis.completo) console.log("emojis:", JSON.stringify(emojis));
         })()
@@ -866,13 +839,7 @@ export default {
           : { pulado: true };
         const comandos = await registrarComandosSeMudaram(env).catch((err) => ({ erro: err.message }));
         const vitrine = await atualizarVitrineBuild(env).catch((err) => ({ erro: err.message }));
-        // Faxina da coleta uma vez por dia (na virada do dia em UTC).
-        const agora = new Date(evento.scheduledTime ?? Date.now());
-        const faxina =
-          agora.getUTCHours() === 0 && agora.getUTCMinutes() < 15
-            ? await limparColetaAntiga(env).then(() => ({ ok: true }), (err) => ({ erro: err.message }))
-            : { pulado: true };
-        console.log("cron:", JSON.stringify({ patch, noticias, comandos, vitrine, faxina }));
+        console.log("cron:", JSON.stringify({ patch, noticias, comandos, vitrine }));
       })()
     );
   },

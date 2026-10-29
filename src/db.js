@@ -158,6 +158,25 @@ export async function limparCacheAntigo(env, prefixo, chaveAtual) {
     .run();
 }
 
+// Builds do OP.GG já buscadas (ver buscarBuild em builds.js).
+export async function pegarCacheBuild(env, chave) {
+  return env.DB.prepare("SELECT valor, em FROM build_cache WHERE chave = ?").bind(chave).first();
+}
+
+export async function salvarCacheBuild(env, chave, valor) {
+  await env.DB.prepare(
+    `INSERT INTO build_cache (chave, valor, em) VALUES (?, ?, ?)
+     ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, em = excluded.em`
+  )
+    .bind(chave, valor, new Date().toISOString())
+    .run();
+}
+
+export async function contarCacheBuild(env) {
+  const linha = await env.DB.prepare("SELECT COUNT(*) AS total FROM build_cache WHERE chave LIKE 'build:%'").first();
+  return linha?.total ?? 0;
+}
+
 export async function pegarEstado(env, chave) {
   const linha = await env.DB.prepare("SELECT value FROM bot_state WHERE key = ?")
     .bind(chave)

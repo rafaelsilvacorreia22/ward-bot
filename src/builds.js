@@ -1,24 +1,26 @@
-// Builds do meta: o bot coleta sozinho partidas recentes dos jogadores do topo
-// do ranqueado brasileiro (Desafiante e Grão-Mestre) pela API da Riot,
-// guarda um resumo enxuto de cada participante e, na hora do /build, agrega
-// tudo e escolhe o que mais ganha. Como a coleta é contínua e os dados são
-// separados por patch, a build acompanha o meta sem ninguém mexer.
+// Builds do meta, vindas do OP.GG.
 //
-// Por que não buscar de um site de builds (op.gg, u.gg): nenhum tem API
-// pública, e raspar HTML deles quebra a cada mudança de layout — o mesmo
-// problema que já deu trabalho com as notas do patch.
+// Primeira versão: o próprio bot coletava partidas do topo do BR pela API da
+// Riot. Não deu: o plano free do Worker limita a coleta a uns poucos milhares
+// de partidas por dia, e no começo cada campeão tinha 1 ou 2 jogos — nada a
+// ver com o que Porofessor e cia. mostram. Esses sites leem milhões de
+// partidas por patch, com dezenas de servidores.
+//
+// O OP.GG publica essas mesmas estatísticas (dezenas de milhares de partidas
+// por campeão, de todos os elos) numa API aberta, feita para integração:
+// https://github.com/opgginc/opgg-mcp. u.gg, Porofessor e Mobalytics bloqueiam
+// acesso automatizado, então não entram.
 
-import { pegarEstado, salvarEstado, limparCacheAntigo } from "./db.js";
-import { versaoAtual } from "./riot.js";
+import { pegarEstado, salvarEstado, limparCacheAntigo, pegarCacheBuild, salvarCacheBuild } from "./db.js";
 
 const DDRAGON = "https://ddragon.leagueoflegends.com";
-const RIOT_BR = "https://br1.api.riotgames.com";
-// A match-v5 não é por plataforma, é por região: o BR fica em "americas".
-const RIOT_AMERICAS = "https://americas.api.riotgames.com";
+const OPGG = "https://mcp-api.op.gg/mcp";
 
+// As chaves são os game_mode do OP.GG.
 export const MODOS = {
-  420: { nome: "Ranqueada Solo/Duo", curto: "Ranqueada" },
-  450: { nome: "ARAM", curto: "ARAM" },
+  ranked: { nome: "Ranqueada Solo/Duo" },
+  flex: { nome: "Ranqueada Flex" },
+  aram: { nome: "ARAM" },
 };
 
 export const ROTAS = {
@@ -29,8 +31,13 @@ export const ROTAS = {
   UTILITY: "Suporte",
 };
 
+// Nossa rota -> position do OP.GG, e o caminho de volta (o OP.GG responde
+// "MID", "ADC" etc. em maiúsculas).
+const POSICAO_OPGG = { TOP: "top", JUNGLE: "jungle", MIDDLE: "mid", BOTTOM: "adc", UTILITY: "support" };
+const ROTA_DO_OPGG = { TOP: "TOP", JUNGLE: "JUNGLE", MID: "MIDDLE", ADC: "BOTTOM", SUPPORT: "UTILITY" };
+
 // Os fragmentos de atributo não vêm no runesReforged.json do Data Dragon.
-const FRAGMENTOS = {
+export const FRAGMENTOS = {
   5001: "Vida escalável",
   5005: "Velocidade de ataque",
   5007: "Aceleração de habilidade",
@@ -39,21 +46,6 @@ const FRAGMENTOS = {
   5011: "Vida",
   5013: "Tenacidade e resistência a lentidão",
 };
-
-const TECLAS = { 1: "Q", 2: "W", 3: "E", 4: "R" };
-
-// A numeração do jogo (16.21) vira um inteiro ordenável (1621): como texto,
-// "16.9" ficaria depois de "16.21".
-export function patchComoNumero(versao) {
-  const [major, minor] = String(versao).split(".");
-  return Number(major) * 100 + Number(minor);
-}
-
-// O número que os jogadores conhecem é o público, 10 à frente do interno
-// (ver urlNotasPatch em riot.js).
-export function patchPublico(numero) {
-  return `${Math.floor(numero / 100) + 10}.${numero % 100}`;
-}
 
 // ---------- dados estáticos (nomes e ícones em pt-BR) ----------
 
@@ -139,434 +131,247 @@ export function urlIconeFeitico(versao, imagem) {
   return `${DDRAGON}/cdn/${versao}/img/spell/${imagem}`;
 }
 
-// ---------- coleta ----------
+// ---------- OP.GG ----------
 
-async function riot(env, url) {
-  const chave = (env.RIOT_API_KEY ?? "").trim();
-  if (!chave) throw new Error("RIOT_API_KEY não configurada");
-  // Mesmo cuidado da antiga rotação: resposta da Riot nunca pode vir de cache.
-  const res = await fetch(url, { headers: { "X-Riot-Token": chave }, cache: "no-store" });
-  if (!res.ok) {
-    const erro = new Error(`Riot API ${new URL(url).pathname} -> ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    erro.status = res.status;
-    throw erro;
+// O nome que o OP.GG espera é o id do Data Dragon em MAIÚSCULAS_COM_TRAÇO:
+// "LeeSin" -> "LEE_SIN", "MonkeyKing" -> "MONKEY_KING".
+function nomeOpgg(arquivoImagem) {
+  return arquivoImagem.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase();
+}
+
+// A API responde num formato próprio, enxuto, em vez de JSON:
+//
+//   class Data: summary,core_items
+//   class CoreItems: ids,play,win
+//
+//   LolGetChampionAnalysis(Data(Summary(...),CoreItems([3100,3157],5606,2809)))
+//
+// As linhas "class" dão o nome de cada campo na ordem; a última linha é o
+// valor. Isto transforma tudo em objetos comuns.
+export function lerFormatoOpgg(texto) {
+  const campos = {};
+  for (const [, nome, lista] of texto.matchAll(/^class (\w+): (.*)$/gm)) {
+    campos[nome] = lista.split(",").map((c) => c.trim());
   }
-  return res;
-}
+  const expr = texto.slice(texto.lastIndexOf("\n\n") + 2).trim();
 
-const VALIDADE_JOGADORES_MS = 24 * 60 * 60 * 1000;
-
-// Os PUUIDs do topo do ranqueado mudam pouco de um dia pro outro; buscar a
-// lista uma vez por dia basta. Fica numa chave própria (60 KB) para a rodada
-// a cada 2 minutos não regravar isso à toa.
-async function jogadoresDoTopo(env) {
-  const guardado = await pegarEstado(env, "coleta_jogadores");
-  if (guardado) {
-    try {
-      const { em, puuids } = JSON.parse(guardado);
-      if (Date.now() - new Date(em).getTime() < VALIDADE_JOGADORES_MS && puuids.length) return puuids;
-    } catch {}
-  }
-
-  const puuids = [];
-  for (const liga of ["challengerleagues", "grandmasterleagues"]) {
-    const res = await riot(env, `${RIOT_BR}/lol/league/v4/${liga}/by-queue/RANKED_SOLO_5x5`);
-    const dados = await res.json();
-    for (const entrada of dados.entries ?? []) if (entrada.puuid) puuids.push(entrada.puuid);
-  }
-  if (!puuids.length) throw new Error("A Riot devolveu a lista do topo vazia");
-  await salvarEstado(env, "coleta_jogadores", JSON.stringify({ em: new Date().toISOString(), puuids }));
-  return puuids;
-}
-
-// O timeline tem ~1 MB e o plano free do Worker dá 10 ms de CPU: um
-// JSON.parse inteiro dele não cabe. Então só os eventos que interessam são
-// recortados por regex e lidos um a um — cada um é um objeto pequeno, sem
-// nada aninhado.
-function lerTimeline(texto) {
-  const porJogador = {};
-  const pegar = (pid) => (porJogador[pid] ??= { compras: [], habilidades: [] });
-  const eventos = /\{[^{}]*"type":"(ITEM_PURCHASED|ITEM_UNDO|SKILL_LEVEL_UP)"[^{}]*\}/g;
-
-  for (const [bruto, tipo] of texto.matchAll(eventos)) {
-    let evento;
-    try {
-      evento = JSON.parse(bruto);
-    } catch {
-      continue;
-    }
-    const jogador = pegar(evento.participantId);
-    if (tipo === "SKILL_LEVEL_UP") {
-      // EVOLVE é a evolução do Kha'Zix/Viktor, não ponto de habilidade.
-      if (evento.levelUpType === "NORMAL" && TECLAS[evento.skillSlot]) {
-        jogador.habilidades.push(TECLAS[evento.skillSlot]);
-      }
-    } else if (evento.timestamp <= 60_000) {
-      if (tipo === "ITEM_PURCHASED") jogador.compras.push(evento.itemId);
-      else {
-        const i = jogador.compras.lastIndexOf(evento.beforeId);
-        if (i >= 0) jogador.compras.splice(i, 1);
-      }
-    }
-  }
-  return porJogador;
-}
-
-function resumirParticipante(p, fila, patch, matchId, itens, timeline) {
-  const slots = [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5].filter(Boolean);
-  // A ordem dos slots é a ordem de compra na maioria das partidas (item novo
-  // cai no primeiro espaço livre). Não é perfeita — quem arruma o inventário
-  // embaralha —, mas na agregação o ruído some.
-  const lendarios = slots.filter((id) => itens[id]?.tipo === "lendario");
-  const botas = slots.find((id) => itens[id]?.tipo === "botas") ?? 0;
-
-  const estilos = p.perks?.styles ?? [];
-  const primario = estilos.find((e) => e.description === "primaryStyle");
-  const secundario = estilos.find((e) => e.description === "subStyle");
-  const fragmentos = p.perks?.statPerks ?? {};
-  const runas =
-    primario && secundario
-      ? `${primario.style}:${primario.selections.map((s) => s.perk).join(",")}` +
-        `|${secundario.style}:${secundario.selections.map((s) => s.perk).join(",")}` +
-        `|${[fragmentos.offense, fragmentos.flex, fragmentos.defense].join(",")}`
-      : "";
-
-  const linhaDoTempo = timeline?.[p.participantId];
-  const inicio = (linhaDoTempo?.compras ?? [])
-    .filter((id) => itens[id])
-    .sort((a, b) => a - b)
-    .join(",");
-
-  return [
-    fila,
-    p.championId,
-    patch,
-    matchId,
-    p.participantId,
-    fila === 420 ? p.teamPosition || "" : "",
-    p.win ? 1 : 0,
-    lendarios.join(","),
-    botas,
-    inicio,
-    runas,
-    [p.summoner1Id, p.summoner2Id].sort((a, b) => a - b).join(","),
-    (linhaDoTempo?.habilidades ?? []).slice(0, 18).join(""),
-  ];
-}
-
-const COLUNAS_AMOSTRA =
-  "fila, campeao, patch, match_id, participante, rota, vitoria, itens, botas, inicio, runas, feiticos, habilidades";
-
-// O D1 aceita no máximo 100 parâmetros por consulta: 13 colunas dão 7 linhas
-// por INSERT. Várias linhas por INSERT, e não um INSERT por linha, porque o
-// plano free também limita quantas consultas cabem numa execução.
-function insercoesEmLote(env, linhas) {
-  const porConsulta = 7;
-  const consultas = [];
-  for (let i = 0; i < linhas.length; i += porConsulta) {
-    const grupo = linhas.slice(i, i + porConsulta);
-    const marcadores = grupo.map(() => `(${Array(13).fill("?").join(",")})`).join(",");
-    consultas.push(
-      env.DB.prepare(`INSERT OR IGNORE INTO build_amostra (${COLUNAS_AMOSTRA}) VALUES ${marcadores}`).bind(
-        ...grupo.flat()
-      )
-    );
-  }
-  return consultas;
-}
-
-// Uma rodada da coleta. Roda a cada 2 minutos (ver scheduled em index.js),
-// com um orçamento pequeno de chamadas à Riot: cabe com folga no limite da
-// chave (100 a cada 2 min) e no de sub-requests do Worker.
-export async function coletarPartidas(env, { orcamento = 9 } = {}) {
-  const versao = await versaoAtual();
-  const patchAtual = patchComoNumero(versao);
-  const { itens } = await dadosDoJogo(env, versao);
-
-  let estado;
-  try {
-    estado = JSON.parse((await pegarEstado(env, "coleta_estado")) ?? "null");
-  } catch {}
-  estado ??= { cursor: 0, vez: 0, pendentes: [] };
-
-  let gastas = 0;
-  const resumo = { partidas: 0, amostras: 0, novasNaFila: 0 };
-
-  // Fila de partidas acabando: pede o histórico de mais um jogador. A cada
-  // três pedidos, um é de ARAM — o topo joga menos ARAM, então o ARAM
-  // precisa de mais voltas pra juntar amostra.
-  if (estado.pendentes.length < 4) {
-    const jogadores = await jogadoresDoTopo(env);
-    gastas += 2;
-    const puuid = jogadores[estado.cursor % jogadores.length];
-    estado.cursor = (estado.cursor + 1) % jogadores.length;
-    const fila = estado.vez % 3 === 2 ? 450 : 420;
-    estado.vez = (estado.vez + 1) % 3;
-
-    const desde = Math.floor((Date.now() - 3 * 86400000) / 1000);
-    const res = await riot(
-      env,
-      `${RIOT_AMERICAS}/lol/match/v5/matches/by-puuid/${puuid}/ids?queue=${fila}&count=10&startTime=${desde}`
-    );
-    gastas++;
-    const ids = await res.json();
-    if (ids.length) {
-      const { results } = await env.DB.prepare(
-        `SELECT match_id FROM build_partidas WHERE match_id IN (${ids.map(() => "?").join(",")})`
-      )
-        .bind(...ids)
-        .all();
-      const vistas = new Set(results.map((r) => r.match_id));
-      const novas = ids.filter((id) => !vistas.has(id) && !estado.pendentes.includes(id));
-      estado.pendentes.push(...novas);
-      resumo.novasNaFila = novas.length;
-    }
-  }
-
-  const linhas = [];
-  const vistas = [];
-  try {
-    while (estado.pendentes.length && gastas + 2 <= orcamento) {
-      const matchId = estado.pendentes[0];
-      let partida;
-      try {
-        partida = await (await riot(env, `${RIOT_AMERICAS}/lol/match/v5/matches/${matchId}`)).json();
-        gastas++;
-      } catch (err) {
-        gastas++;
-        // Partida que sumiu (404) sai da fila; o resto (429, Riot fora do ar)
-        // interrompe a rodada e fica para a próxima.
-        if (err.status !== 404) throw err;
-        estado.pendentes.shift();
-        vistas.push(matchId);
-        continue;
-      }
-      estado.pendentes.shift();
-      vistas.push(matchId);
-
-      const info = partida.info ?? {};
-      const patch = patchComoNumero(info.gameVersion ?? "0.0");
-      const remake = (info.participants ?? []).some((p) => p.gameEndedInEarlySurrender);
-      // Só o patch atual e o anterior interessam; partida curta é remake.
-      if (!MODOS[info.queueId] || remake || (info.gameDuration ?? 0) < 600 || patch < patchAtual - 1) continue;
-
-      // Sem o timeline a partida ainda vale (itens finais, runas, feitiços);
-      // só ficam sem início e ordem de habilidades.
-      let timeline = null;
-      try {
-        const res = await riot(env, `${RIOT_AMERICAS}/lol/match/v5/matches/${matchId}/timeline`);
-        timeline = lerTimeline(await res.text());
-      } catch (err) {
-        console.log(`Timeline de ${matchId} indisponível:`, err.message);
-      }
-      gastas++;
-
-      for (const p of info.participants) {
-        linhas.push(resumirParticipante(p, info.queueId, patch, matchId, itens, timeline));
-      }
-      resumo.partidas++;
-    }
-  } finally {
-    // Grava o que deu tempo de coletar mesmo se a rodada parou no meio.
-    const consultas = [
-      ...insercoesEmLote(env, linhas),
-      ...vistas.map((id) =>
-        env.DB.prepare("INSERT OR IGNORE INTO build_partidas (match_id, em) VALUES (?, datetime('now'))").bind(id)
-      ),
-      env.DB.prepare(
-        `INSERT INTO bot_state (key, value) VALUES ('coleta_estado', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-      ).bind(JSON.stringify({ ...estado, pendentes: estado.pendentes.slice(0, 40) })),
-    ];
-    await env.DB.batch(consultas);
-  }
-
-  resumo.amostras = linhas.length;
-  return resumo;
-}
-
-// Faxina diária: fica só o patch atual e o anterior (o anterior serve de
-// reserva nos primeiros dias de patch novo, quando a amostra ainda é
-// pequena), e a lista de partidas já vistas só precisa cobrir a janela de
-// 3 dias da busca de histórico.
-export async function limparColetaAntiga(env) {
-  const patchAtual = patchComoNumero(await versaoAtual());
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM build_amostra WHERE patch < ?").bind(patchAtual - 1),
-    env.DB.prepare("DELETE FROM build_partidas WHERE em < datetime('now', '-4 days')"),
-  ]);
-}
-
-// ---------- agregação ----------
-
-// Limite inferior do intervalo de Wilson: a taxa de vitória "com desconto"
-// pelo tamanho da amostra. Assim uma opção com 3 jogos e 100% de vitória não
-// passa na frente de uma com 400 jogos e 54%.
-function wilson(vitorias, jogos, z = 1.645) {
-  if (!jogos) return 0;
-  const p = vitorias / jogos;
-  const z2 = z * z;
-  return (p + z2 / (2 * jogos) - z * Math.sqrt((p * (1 - p) + z2 / (4 * jogos)) / jogos)) / (1 + z2 / jogos);
-}
-
-function agrupar(linhas, chaveDe) {
-  const grupos = new Map();
-  for (const linha of linhas) {
-    const chave = chaveDe(linha);
-    if (!chave) continue;
-    const g = grupos.get(chave) ?? { chave, jogos: 0, vitorias: 0 };
-    g.jogos++;
-    g.vitorias += linha.vitoria;
-    grupos.set(chave, g);
-  }
-  return [...grupos.values()];
-}
-
-// A escolha "que os jogadores estão usando para ganhar": entre as opções com
-// uso relevante (pelo menos 4% das partidas), a de maior vitória ajustada.
-function melhorOpcao(linhas, chaveDe) {
-  const grupos = agrupar(linhas, chaveDe);
-  if (!grupos.length) return null;
-  const total = grupos.reduce((s, g) => s + g.jogos, 0);
-  const piso = Math.max(2, total * 0.04);
-  const relevantes = grupos.filter((g) => g.jogos >= piso);
-  const candidatas = relevantes.length ? relevantes : grupos;
-  candidatas.sort((a, b) => wilson(b.vitorias, b.jogos) - wilson(a.vitorias, a.jogos) || b.jogos - a.jogos);
-  const g = candidatas[0];
-  return { ...g, taxa: g.vitorias / g.jogos };
-}
-
-const lista = (texto) => (texto ? texto.split(",").map(Number) : []);
-
-// Q, W e E na ordem em que chegam a 5 pontos — é o "maximizar primeiro".
-function ordemDeMaximizar(sequencia) {
-  const pontos = { Q: 0, W: 0, E: 0 };
-  const ordem = [];
-  for (const tecla of sequencia) {
-    if (!(tecla in pontos)) continue;
-    if (++pontos[tecla] === 5) ordem.push(tecla);
-  }
-  for (const tecla of ["Q", "W", "E"].sort((a, b) => pontos[b] - pontos[a])) {
-    if (!ordem.includes(tecla)) ordem.push(tecla);
-  }
-  return ordem.join(">");
-}
-
-// Monta a build recomendada de um campeão. `rota` é opcional: sem ela, vale
-// a rota em que o campeão mais aparece. Devolve null quando ainda não há
-// partida nenhuma coletada.
-export async function montarBuild(env, campeaoId, fila, rota) {
-  // A chave primária começa por (fila, campeao), então isto lê só as linhas
-  // do campeão — e a faxina garante que são no máximo dois patches.
-  const { results } = await env.DB.prepare(
-    `SELECT patch, rota, vitoria, itens, botas, inicio, runas, feiticos, habilidades
-     FROM build_amostra WHERE fila = ? AND campeao = ?`
-  )
-    .bind(fila, campeaoId)
-    .all();
-  if (!results.length) return null;
-
-  // Patch novo começa com pouca amostra: até juntar 60 partidas, o patch
-  // anterior entra junto pra build não sair de uma meia dúzia de jogos.
-  const patches = [...new Set(results.map((r) => r.patch))].sort((a, b) => b - a);
-  const doAtual = results.filter((r) => r.patch === patches[0]);
-  let linhas = doAtual.length >= 60 || patches.length === 1 ? doAtual : results;
-  const patchesUsados = doAtual.length >= 60 ? [patches[0]] : patches;
-
-  const rotas = agrupar(linhas, (l) => l.rota)
-    .sort((a, b) => b.jogos - a.jogos)
-    .map((g) => ({ rota: g.chave, jogos: g.jogos }));
-  const rotaEscolhida = fila === 420 ? (rota && rotas.some((r) => r.rota === rota) ? rota : rotas[0]?.rota ?? "") : "";
-  if (rotaEscolhida) linhas = linhas.filter((l) => l.rota === rotaEscolhida);
-
-  const vitorias = linhas.reduce((s, l) => s + l.vitoria, 0);
-
-  // Núcleo: os três primeiros itens finais, como conjunto (a ordem de compra
-  // varia demais para servir de chave).
-  const tamanhoNucleo = linhas.filter((l) => lista(l.itens).length >= 3).length >= 10 ? 3 : 2;
-  const nucleoDe = (l) => {
-    const itens = lista(l.itens);
-    return itens.length >= tamanhoNucleo ? itens.slice(0, tamanhoNucleo).sort((a, b) => a - b).join(",") : null;
+  let i = 0;
+  const numero = /-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/iy;
+  const nome = /\w+/y;
+  const pular = () => {
+    while (i < expr.length && /[\s,]/.test(expr[i])) i++;
   };
-  const nucleo = melhorOpcao(linhas, nucleoDe);
-  let itensNucleo = [];
-  let extras = [];
-  if (nucleo) {
-    const ids = lista(nucleo.chave);
-    const comNucleo = linhas.filter((l) => nucleoDe(l) === nucleo.chave);
-    // Exibe na ordem média em que cada item foi comprado.
-    const posicao = (id) =>
-      comNucleo.reduce((s, l) => s + lista(l.itens).indexOf(id), 0) / Math.max(1, comNucleo.length);
-    itensNucleo = ids.sort((a, b) => posicao(a) - posicao(b));
 
-    // 4º item em diante: o que mais aparece depois desse núcleo.
-    const depois = new Map();
-    for (const l of comNucleo) {
-      for (const id of lista(l.itens).slice(tamanhoNucleo)) {
-        const g = depois.get(id) ?? { id, jogos: 0, vitorias: 0 };
-        g.jogos++;
-        g.vitorias += l.vitoria;
-        depois.set(id, g);
-      }
+  function valor() {
+    pular();
+    const c = expr[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (expr[j] !== '"') j += expr[j] === "\\" ? 2 : 1;
+      const s = JSON.parse(expr.slice(i, j + 1));
+      i = j + 1;
+      return s;
     }
-    extras = [...depois.values()]
-      .sort((a, b) => b.jogos - a.jogos)
-      .slice(0, 5)
-      .map((g) => ({ ...g, taxa: g.vitorias / g.jogos }));
+    if (c === "[") {
+      i++;
+      const lista = [];
+      for (pular(); expr[i] !== "]"; pular()) lista.push(valor());
+      i++;
+      return lista;
+    }
+    numero.lastIndex = i;
+    const n = numero.exec(expr);
+    if (n) {
+      i = numero.lastIndex;
+      return Number(n[0]);
+    }
+    nome.lastIndex = i;
+    const m = nome.exec(expr);
+    if (!m) throw new Error(`Formato do OP.GG inesperado perto de "${expr.slice(i, i + 30)}"`);
+    i = nome.lastIndex;
+    if (m[0] === "null") return null;
+    if (m[0] === "true" || m[0] === "false") return m[0] === "true";
+    if (expr[i] !== "(") return m[0];
+    i++;
+    const args = [];
+    for (pular(); expr[i] !== ")"; pular()) args.push(valor());
+    i++;
+    const objeto = {};
+    (campos[m[0]] ?? []).forEach((campo, k) => (objeto[campo] = args[k] ?? null));
+    return objeto;
   }
 
-  // Campeão que quase nunca compra bota (Cassiopeia) não ganha "bota
-  // recomendada" tirada de meia dúzia de partidas fora do padrão.
-  const comBota = linhas.filter((l) => l.botas).length;
-  const botas = comBota >= linhas.length * 0.4 ? melhorOpcao(linhas, (l) => l.botas || null) : null;
+  return valor();
+}
 
-  const runas = melhorOpcao(linhas, (l) => l.runas || null);
-  const ordem = melhorOpcao(linhas, (l) => (l.habilidades.length >= 9 ? ordemDeMaximizar(l.habilidades) : null));
-  const primeiras = ordem
-    ? melhorOpcao(
-        linhas.filter((l) => l.habilidades.length >= 9 && ordemDeMaximizar(l.habilidades) === ordem.chave),
-        (l) => l.habilidades.slice(0, 3)
-      )
-    : null;
+const CAMPOS_PEDIDOS = [
+  "data.summary.average_stats.{play,win_rate,pick_rate,ban_rate,tier,rank}",
+  "data.summary.positions[].name",
+  "data.summary.positions[].stats.{play,win_rate,role_rate}",
+  "data.starter_items.{ids[],play,win,pick_rate}",
+  "data.core_items.{ids[],play,win,pick_rate}",
+  "data.boots.{ids[],play,win,pick_rate}",
+  "data.fourth_items[].{ids[],play,win,pick_rate}",
+  "data.fifth_items[].{ids[],play,win,pick_rate}",
+  "data.sixth_items[].{ids[],play,win,pick_rate}",
+  "data.runes.{primary_page_id,primary_rune_ids[],secondary_page_id,secondary_rune_ids[],stat_mod_ids[],play,win,pick_rate}",
+  "data.summoner_spells.{ids[],play,win,pick_rate}",
+  "data.skills.{order[],play,win,pick_rate}",
+  "data.skill_masteries.{ids[],play,win,pick_rate}",
+];
 
-  let runasDetalhe = null;
-  if (runas) {
-    const [prim, sec, frag] = runas.chave.split("|");
-    const [estiloPrim, runasPrim] = prim.split(":");
-    const [estiloSec, runasSec] = sec.split(":");
-    runasDetalhe = {
-      ...runas,
-      primario: Number(estiloPrim),
-      runasPrimarias: lista(runasPrim),
-      secundario: Number(estiloSec),
-      runasSecundarias: lista(runasSec),
-      fragmentos: lista(frag).map((id) => FRAGMENTOS[id] ?? `#${id}`),
-    };
-  }
+async function chamarOpgg(argumentos) {
+  const res = await fetch(OPGG, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "lol_get_champion_analysis", arguments: argumentos },
+    }),
+  });
+  const bruto = await res.text();
+  if (!res.ok) throw new Error(`OP.GG -> ${res.status}: ${bruto.slice(0, 200)}`);
+
+  // O transporte "streamable HTTP" pode responder como SSE; aí o JSON vem
+  // nas linhas "data:".
+  const corpo = (res.headers.get("content-type") ?? "").includes("event-stream")
+    ? bruto
+        .split("\n")
+        .filter((l) => l.startsWith("data:"))
+        .map((l) => l.slice(5))
+        .join("")
+    : bruto;
+  const resposta = JSON.parse(corpo);
+  if (resposta.error) throw new Error(`OP.GG recusou: ${resposta.error.message}`.slice(0, 300));
+  const texto = resposta.result?.content?.[0]?.text ?? "";
+  if (resposta.result?.isError) throw new Error(`OP.GG: ${texto.slice(0, 200)}`);
+  return lerFormatoOpgg(texto)?.data ?? null;
+}
+
+// Uma opção de item/runa/feitiço no formato que o resto do bot usa.
+const opcao = (o) => (o?.play ? { ids: o.ids ?? [], jogos: o.play, taxa: o.win / o.play } : null);
+const opcoes = (lista) => (Array.isArray(lista) ? lista.map(opcao).filter(Boolean).slice(0, 3) : []);
+
+function normalizar(dados, modo, rota) {
+  const rotas = (dados.summary?.positions ?? [])
+    .map((p) => ({ rota: ROTA_DO_OPGG[p.name] ?? p.name, jogos: p.stats?.play ?? 0, taxa: p.stats?.win_rate ?? 0 }))
+    .sort((a, b) => b.jogos - a.jogos);
+  const media = dados.summary?.average_stats ?? {};
+  // Os números do topo são os da rota escolhida; o average_stats é do
+  // campeão inteiro.
+  const daRota = rotas.find((r) => r.rota === rota);
+  const r = dados.runes;
 
   return {
-    fila,
-    rota: rotaEscolhida,
-    rotas,
-    patches: patchesUsados,
-    jogos: linhas.length,
-    taxa: linhas.length ? vitorias / linhas.length : 0,
-    inicio: melhorOpcao(linhas, (l) => l.inicio || null),
-    nucleo: nucleo ? { ...nucleo, itens: itensNucleo } : null,
-    extras,
-    botas,
-    runas: runasDetalhe,
-    feiticos: melhorOpcao(linhas, (l) => l.feiticos || null),
-    habilidades: ordem ? { ordem: ordem.chave, primeiras: primeiras?.chave ?? "", ...ordem } : null,
+    modo,
+    rota: modo === "aram" ? "" : rota,
+    rotas: modo === "aram" ? [] : rotas,
+    jogos: daRota?.jogos || media.play || 0,
+    taxa: daRota?.taxa || media.win_rate || 0,
+    tier: media.tier ?? null,
+    inicio: opcao(dados.starter_items),
+    nucleo: opcao(dados.core_items),
+    botas: opcao(dados.boots),
+    extras: [opcoes(dados.fourth_items), opcoes(dados.fifth_items), opcoes(dados.sixth_items)],
+    runas: r?.play
+      ? {
+          primario: r.primary_page_id,
+          runasPrimarias: r.primary_rune_ids ?? [],
+          secundario: r.secondary_page_id,
+          runasSecundarias: r.secondary_rune_ids ?? [],
+          fragmentos: r.stat_mod_ids ?? [],
+          jogos: r.play,
+          taxa: r.win / r.play,
+        }
+      : null,
+    feiticos: opcao(dados.summoner_spells),
+    habilidades: dados.skill_masteries?.play
+      ? {
+          ordem: (dados.skill_masteries.ids ?? []).join(">"),
+          sequencia: (dados.skills?.order ?? []).join(""),
+          jogos: dados.skill_masteries.play,
+          taxa: dados.skill_masteries.win / dados.skill_masteries.play,
+        }
+      : null,
+    fonte: "OP.GG",
+    em: new Date().toISOString(),
   };
 }
 
-// Quantas partidas já foram coletadas, por modo, no patch mais recente —
-// para o painel de uso e o rodapé do /build.
-export async function totalColetado(env) {
-  const { results } = await env.DB.prepare(
-    `SELECT fila, patch, COUNT(*) / 10 AS partidas FROM build_amostra
-     GROUP BY fila, patch ORDER BY patch DESC`
-  ).all();
-  return results;
+// As estatísticas do OP.GG mudam aos poucos ao longo do patch; 6 horas de
+// cache deixam o /build instantâneo na maioria das vezes e poupam a API
+// deles. Se o OP.GG cair, a última build guardada continua valendo.
+const VALIDADE_CACHE_MS = 6 * 60 * 60 * 1000;
+const VALIDADE_ROTA_MS = 3 * 24 * 60 * 60 * 1000;
+
+async function doCache(env, chave, validade) {
+  const guardado = await pegarCacheBuild(env, chave).catch(() => null);
+  if (!guardado) return { valor: null, fresco: false };
+  const fresco = Date.now() - new Date(guardado.em).getTime() < validade;
+  try {
+    return { valor: JSON.parse(guardado.valor), fresco };
+  } catch {
+    return { valor: null, fresco: false };
+  }
+}
+
+// A build recomendada de um campeão. `rota` é opcional: sem ela, vale a rota
+// em que o campeão mais aparece. Devolve null se o OP.GG não tiver dados.
+export async function buscarBuild(env, campeao, modo = "ranked", rota) {
+  if (!MODOS[modo]) modo = "ranked";
+  const nome = nomeOpgg(campeao.arquivoImagem);
+
+  // O OP.GG exige uma rota mesmo quando a pessoa não escolheu. A principal
+  // de cada campeão fica guardada; sem ela, pergunta pelo meio e, se a
+  // resposta disser que a principal é outra, pergunta de novo.
+  let palpite = rota;
+  if (!palpite && modo !== "aram") {
+    const { valor } = await doCache(env, `rota:${nome}`, VALIDADE_ROTA_MS);
+    palpite = valor ?? "MIDDLE";
+  }
+  palpite ??= "MIDDLE"; // no ARAM a rota é ignorada, mas o campo é obrigatório
+
+  const chave = `build:${nome}:${modo}:${modo === "aram" ? "-" : palpite}`;
+  const cache = await doCache(env, chave, VALIDADE_CACHE_MS);
+  if (cache.valor && cache.fresco) return cache.valor;
+
+  try {
+    const pedir = (r) =>
+      chamarOpgg({
+        champion: nome,
+        game_mode: modo,
+        position: POSICAO_OPGG[r],
+        lang: "pt_BR",
+        desired_output_fields: CAMPOS_PEDIDOS,
+      });
+
+    let dados = await pedir(palpite);
+    let rotaFinal = palpite;
+    if (!rota && modo !== "aram") {
+      const principal = normalizar(dados ?? {}, modo, palpite).rotas[0]?.rota;
+      if (principal && ROTAS[principal]) {
+        await salvarCacheBuild(env, `rota:${nome}`, JSON.stringify(principal)).catch(() => {});
+        if (principal !== palpite) {
+          dados = await pedir(principal);
+          rotaFinal = principal;
+        }
+      }
+    }
+    if (!dados?.core_items) return cache.valor ?? null;
+
+    const build = normalizar(dados, modo, rotaFinal);
+    await salvarCacheBuild(env, `build:${nome}:${modo}:${modo === "aram" ? "-" : rotaFinal}`, JSON.stringify(build)).catch(
+      (err) => console.log("Não guardei a build no cache:", err.message)
+    );
+    await salvarEstado(env, "opgg_erro", "").catch(() => {});
+    return build;
+  } catch (err) {
+    console.log(`OP.GG falhou para ${nome}:`, err.message);
+    await salvarEstado(env, "opgg_erro", String(err.message).slice(0, 300)).catch(() => {});
+    await salvarEstado(env, "opgg_erro_em", new Date().toISOString()).catch(() => {});
+    if (cache.valor) return cache.valor; // velha, mas melhor que nada
+    throw err;
+  }
 }
