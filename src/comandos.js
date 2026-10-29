@@ -42,9 +42,20 @@ export const DEFINICOES = [
 // Modo de cada subcomando do /build.
 const MODO_DO_SUBCOMANDO = { ranqueada: "ranked", flex: "flex", aram: "aram" };
 
-// As opções chegam aninhadas dentro do subcomando: options[0] = { name:
-// "aram", options: [{ name: "campeao", value: "Fizz" }] }.
-const subcomando = (interacao) => interacao.data.options?.[0];
+// As opções chegam aninhadas dentro do subcomando: options[0] = { type: 1,
+// name: "aram", options: [{ name: "campeao", value: "Fizz" }] }.
+//
+// O Discord do usuário pode demorar até 1h para trocar a definição antiga
+// (opções soltas: campeao, modo, rota) pela nova. Nesse meio-tempo a
+// interação chega no formato antigo — sem tratar isso, "campeao" vinha
+// undefined. Então o formato antigo é lido como se fosse um subcomando.
+const SUBCOMANDO_DO_MODO_ANTIGO = { ranked: "ranqueada", flex: "flex", aram: "aram", 450: "aram" };
+const subcomando = (interacao) => {
+  const opcoes = interacao.data.options ?? [];
+  if (opcoes[0]?.type === 1) return opcoes[0];
+  const modo = opcoes.find((o) => o.name === "modo")?.value;
+  return { name: SUBCOMANDO_DO_MODO_ANTIGO[modo] ?? "ranqueada", options: opcoes };
+};
 const opcao = (interacao, nome) => subcomando(interacao)?.options?.find((o) => o.name === nome)?.value;
 
 export const porcentagem = (taxa) => `${(taxa * 100).toFixed(1).replace(".", ",")}%`;

@@ -344,9 +344,15 @@ const ESTILO = `
   /* O fundo agora é desenhado: brilho de latão no alto, verde embaixo, um
      arco déco ao centro e estriado vertical nas laterais. Pesa alguns bytes
      de CSS em vez dos 2,4 MB do vídeo. */
+  /* Ocupa a tela inteira (menos nada: a barra do topo é fixa e fica por
+     cima). svh e não vh: no celular, vh conta a área atrás da barra de
+     endereço e o hero ficaria maior que a tela visível. O resto da página só
+     aparece ao rolar, com a revelação de cada seção. */
   .heroi {
     position: relative; overflow: hidden;
-    padding: 118px clamp(18px, 5vw, 40px) 54px;
+    min-height: 100vh; min-height: 100svh;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 90px clamp(18px, 5vw, 40px) 70px;
     text-align: center;
     background:
       radial-gradient(92% 62% at 50% -12%, color-mix(in srgb, var(--latao) 20%, transparent) 0%, transparent 62%),
@@ -404,7 +410,15 @@ const ESTILO = `
     background: var(--grad-titulo);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .heroi .subtitulo { color: var(--texto-fraco); max-width: 560px; margin: 0 auto 28px; font-size: 1.05rem; }
+  .heroi .ornamento { margin-bottom: 30px; }
+  .rolar {
+    position: absolute; left: 50%; bottom: 22px; z-index: 1; translate: -50% 0;
+    display: grid; place-items: center; width: 42px; height: 42px;
+    color: var(--latao); border: 1px solid var(--latao-escuro); clip-path: var(--degrau-p);
+    animation: quicar 2.2s ease-in-out infinite;
+  }
+  .rolar:hover { color: var(--latao-claro); border-color: var(--latao); }
+  @keyframes quicar { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(7px); } }
   .acoes { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
 
   /* Losango entre dois filetes, versão enxuta do separador déco. */
@@ -664,7 +678,7 @@ const ESTILO = `
   @media (prefers-reduced-motion: reduce) {
     .botao, .cartao, .funcao, select, input { transition: none; }
     main, ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
-    body::before, .brasas span, .heroi-aneis i { animation: none; }
+    body::before, .brasas span, .heroi-aneis i, .rolar { animation: none; }
     .brasas { display: none; }
     .com-revelar .revelar,
     .com-revelar .escalonar > * { opacity: 1; transform: none; transition: none; }
@@ -673,7 +687,7 @@ const ESTILO = `
   @media (max-width: 620px) {
     br.so-largo { display: none; }
     .heroi h1 { text-wrap: balance; }
-    .heroi { padding-top: 100px; }
+    .heroi { padding-top: 80px; }
     .heroi::after { display: none; }
     .cartao { padding: 19px; }
     .funcao-corpo { padding: 22px 20px 16px; }
@@ -870,16 +884,18 @@ export function landing(clientId, vitrine) {
         <p class="sobrancelha">Bot de Discord · League of Legends</p>
         <!-- O espaço antes de cada <br> é necessário: no celular o <br> some
              (display:none) e sem ele as palavras encostariam uma na outra. -->
-        <h1>Seu servidor <br class="so-largo">nunca mais perde <br class="so-largo">o patch novo</h1>
+        <h1>Te ajuda <br class="so-largo">sem sair do <br class="so-largo">Discord</h1>
         <div class="ornamento"><i></i></div>
-        <p class="subtitulo">O Ward vigia as publicações da Riot e avisa no canal que
-        você escolher: patch novo e notícias oficiais. E com <code>/build</code>, mostra
-        a build que mais ganha para cada campeão no meta atual.</p>
         <div class="acoes">
           <a class="botao destaque" href="${convite(clientId)}">Adicionar ao Discord</a>
           <a class="botao vazado" href="#funcoes">Ver o que ele faz</a>
         </div>
       </div>
+      <!-- O hero ocupa a tela inteira, então sem esta seta não fica claro
+           que tem conteúdo embaixo. -->
+      <a class="rolar" href="#funcoes" aria-label="Ver o que ele faz">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </a>
     </section>
 
     <section class="faixa escura" id="funcoes">
