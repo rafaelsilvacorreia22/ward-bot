@@ -7,7 +7,7 @@ comando de build:
 - **Patch novo**: a versão e o resumo oficial traduzido, quando sai patch.
 - **Notícias oficiais**: CBLOL e outros esports, skins, atualizações do jogo
   e comunicados — direto do site da Riot em português.
-- **`/build <campeão> [modo] [rota]`**: a build que mais ganha no meta atual
+- **`/build ranqueada|flex|aram <campeão> [rota]`** (o ARAM não tem rota): a build que mais ganha no meta atual
   (itens iniciais, build principal, botas, opções de 4º, 5º e 6º item,
   runas, feitiços e ordem de habilidades), com dados do OP.GG, com o ícone de cada item. Também
   em página no site: `/build` e `/build/<campeão>`.
