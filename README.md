@@ -1,15 +1,47 @@
 # Ward — bot de League of Legends para Discord
 
-Bot que qualquer servidor pode adicionar (não precisa mexer em código). Três
-avisos, cada um com seu canal, configurados pelo **dashboard web**:
+Bot que qualquer servidor pode adicionar (não precisa mexer em código). Dois
+avisos, cada um com seu canal, configurados pelo **dashboard web**, e um
+comando de build:
 
 - **Patch novo**: a versão e o resumo oficial traduzido, quando sai patch.
 - **Notícias oficiais**: CBLOL e outros esports, skins, atualizações do jogo
   e comunicados — direto do site da Riot em português.
-- **Rotação semanal**: os campeões grátis da semana, com o ícone de cada um.
+- **`/build <campeão> [modo] [rota]`**: a build que mais ganha no meta atual
+  (itens iniciais, build principal, botas, opções de 4º item em diante,
+  runas, feitiços e ordem de habilidades), com o ícone de cada item. Também
+  em página no site: `/build` e `/build/<campeão>`.
 
-Comandos: `/patch`, `/rotacao`, `/dashboard` (manda o link de configuração
+Comandos: `/patch`, `/build`, `/dashboard` (manda o link de configuração
 daquele servidor).
+
+A **rotação semanal** existiu até 10/2026 e saiu: o endpoint oficial da Riot
+(`champion-rotations`) congelou e passou a devolver a mesma lista por
+semanas, então o bot anunciava rotação velha como se fosse nova.
+
+## Como o /build se mantém no meta
+
+Nenhum site de builds (op.gg, u.gg, Porofessor) tem API pública, e raspar
+HTML deles quebra a cada mudança de layout. Então o Ward monta as próprias
+estatísticas com a chave da Riot (`src/builds.js`):
+
+1. A cada 2 minutos (cron próprio), pega o histórico recente de um jogador
+   Desafiante/Grão-Mestre do BR (lista renovada 1×/dia) — 2 de cada 3 vezes
+   na ranqueada solo/duo, 1 no ARAM — e lê algumas partidas novas (match-v5 +
+   timeline). ~3 partidas por rodada, ~2 mil por dia, folgado no limite da
+   chave e no plano free do Worker.
+2. De cada participante guarda só o anônimo em `build_amostra`: campeão,
+   rota, vitória, itens finais, botas, itens iniciais, runas, feitiços e
+   ordem de habilidades. Fica só o patch atual e o anterior (faxina diária).
+3. No `/build`, agrega na hora: entre as opções usadas em pelo menos 4% das
+   partidas, escolhe a de maior vitória ajustada pelo tamanho da amostra
+   (limite inferior de Wilson). Patch novo com menos de 60 partidas usa o
+   anterior junto.
+
+Os ícones viram **emojis do aplicativo** (itens `i<id>`, runas `r<id>`,
+feitiços `s<key>`), subidos aos poucos pelo próprio cron da coleta — item
+novo de patch novo aparece sozinho. Os slash commands também se registram
+sozinhos quando a lista muda (`comandos_registrados` no `bot_state`).
 
 ## Por que não tem contagem de jogadores nem elo/partida ao vivo
 
@@ -22,8 +54,10 @@ chave pessoal ("Personal API Key") funciona, mas **expira sozinha a cada
 
 - **Alerta de patch**: não precisa de chave nenhuma (Data Dragon é público).
 - **Notícias**: também sem chave — vêm do site oficial em pt-BR.
-- **Rotação semanal**: precisa de chave, mas se a chave falhar o recurso só
-  fica quieto (não quebra o bot, não spama erro) até alguém renovar.
+- **/build**: precisa de chave da Riot com acesso a league-v4 e match-v5 (a
+  chave de produto/"Personal API Key" aprovada não expira). Se a chave
+  falhar, a coleta para e o erro aparece no `/admin/uso`; o `/build` segue
+  respondendo com o que já foi coletado.
 
 Uma pegadinha descoberta na marra: a numeração pública do patch não é a mesma
 do Data Dragon (o "16.19" de lá é o "26.19" do site), e isso não está
@@ -34,13 +68,14 @@ documentado em lugar nenhum — ver `urlNotasPatch` em `src/riot.js`.
 Um único Cloudflare Worker + banco D1, sem framework, sem build:
 
 ```
-src/index.js      # rotas HTTP + cron (patch / notícias / rotação)
+src/index.js      # rotas HTTP + crons (patch / notícias; coleta do /build)
 src/discord.js    # verificação de assinatura + chamadas REST da Discord
 src/oauth.js      # "Entrar com Discord" do dashboard (sessão em cookie assinado)
-src/riot.js       # versão do jogo (Data Dragon) + rotação de campeões
+src/riot.js       # versão do jogo e roster de campeões (Data Dragon)
+src/builds.js     # coleta de partidas (Riot API) e agregação do /build
 src/noticias.js   # notícias oficiais do site da Riot em pt-BR
 src/traducao.js   # tradução do resumo do patch (Workers AI, com reservas)
-src/comandos.js   # /patch, /rotacao, /dashboard
+src/comandos.js   # /patch, /build, /dashboard
 src/paginas.js    # HTML do site e do dashboard
 src/db.js         # consultas ao D1
 schema.sql        # tabelas do D1
@@ -52,23 +87,18 @@ pública com o link de convite, `/login` entra com Discord, `/dashboard`
 lista os servidores que a pessoa administra e onde o Ward já está,
 `/dashboard/<id do servidor>` é o formulário de configuração daquele
 servidor. Nele também dá pra:
-- **Postar agora**: manda o patch/rotação atual pro canal escolhido na hora,
-  sem esperar o cron (bom pra testar o canal antes de salvar).
-- **Horário fixo diário** (só na rotação): posta a lista atual todo dia num
-  horário escolhido, fuso de Brasília. Desligado por padrão. O patch e as
-  notícias não têm isso de propósito — como só mudam de vez em quando,
-  postar num horário fixo repetiria a mesma coisa.
+- **Postar agora**: manda o patch atual (ou uma notícia escolhida) pro canal
+  na hora, sem esperar o cron (bom pra testar o canal antes de salvar).
 
-Cada aviso só sai quando há novidade de verdade: a versão do jogo mudou, a
-lista de campeões grátis mudou, ou saiu um artigo que ainda não foi anunciado.
-A rotação ainda apaga a mensagem anterior antes de postar a nova, pra não
-acumular lista velha no canal.
+Cada aviso só sai quando há novidade de verdade: a versão do jogo mudou ou
+saiu um artigo que ainda não foi anunciado.
 
 Rotas de administração (protegidas pelo `SETUP_KEY`): `/admin/uso` mostra em
 quais servidores o bot está e quanto cada função é usada, `/admin/checar`
 força uma verificação (exige `?servidor=<id>`, pra um teste nunca postar em
 todos os servidores de uma vez) e `/admin/sincronizar` marca tudo como já
-anunciado sem postar nada.
+anunciado sem postar nada. `/admin/coletar` roda uma rodada da coleta do
+`/build` na hora (bom pra testar a chave da Riot).
 
 ## Colocar no ar (passo a passo)
 
@@ -99,6 +129,12 @@ Copie o `database_id` que aparecer e cole no lugar de
 npm run banco
 ```
 
+E aplique as migrações, em ordem (`migracoes/0001...` até a última):
+
+```bash
+npx wrangler d1 execute ward-bot --remote --file=migracoes/0008_builds.sql
+```
+
 ### 3. Configurar os segredos do Worker
 
 Pela aba **Settings → Variables and Secrets** do Worker no painel da
@@ -112,7 +148,7 @@ Cloudflare (ou `npx wrangler secret put NOME`, um de cada vez):
 | `DISCORD_CLIENT_SECRET` | Client Secret (aba OAuth2) |
 | `SESSION_SECRET` | Uma string aleatória grande (ex: gerada com `openssl rand -hex 32`) — assina o cookie de login |
 | `SETUP_KEY` | Uma senha inventada por você — protege as rotas `/registrar-comandos` e `/admin/checar` |
-| `RIOT_API_KEY` | Opcional. Chave pessoal em https://developer.riotgames.com/ — **expira a cada 24h**, sem ela a rotação só fica desligada |
+| `RIOT_API_KEY` | Chave da Riot (https://developer.riotgames.com/) para o `/build`. Use a chave de produto aprovada — a de desenvolvimento expira a cada 24h |
 
 ### 4. Deploy
 
@@ -143,7 +179,7 @@ todo lugar (comando global).
    `<sua-url>/admin/checar?chave=SUA_SETUP_KEY` — deve aparecer uma
    mensagem no canal escolhido (só posta se a versão mudou desde a última
    vez; na primeira vez sempre posta, porque não tem versão salva ainda).
-4. No Discord, teste `/patch`, `/rotacao` e `/dashboard`.
+4. No Discord, teste `/patch`, `/build` e `/dashboard`.
 
 ## Rodando localmente
 
@@ -160,8 +196,9 @@ interações em `wrangler dev` local — dá pra testar as rotas do dashboard
 
 | Sintoma | Causa provável |
 |---|---|
-| `/patch` ou `/rotacao` não respondem nada | Comando ainda não propagou (espera até 1h após registrar) ou `DISCORD_PUBLIC_KEY` errada |
-| `/rotacao` sempre diz "indisponível" | `RIOT_API_KEY` vencida (renove em developer.riotgames.com) ou não configurada |
+| `/patch` ou `/build` não respondem nada | Comando ainda não propagou (espera até 1h após registrar) ou `DISCORD_PUBLIC_KEY` errada |
+| `/build` sempre diz "ainda juntando partidas" | Coleta parada: veja o cartão "Coleta do /build" em `/admin/uso` (chave da Riot recusada, por exemplo) |
+| Tudo que posta no Discord falha com 401 | `DISCORD_TOKEN` inválido (foi resetado no Developer Portal) — gere um novo e salve no Worker |
 | Dashboard fica voltando pro login | `SESSION_SECRET` mudou (invalida cookies antigos) ou cookie expirou (7 dias) |
 | "Você não administra esse servidor" | Sua conta não tem permissão de Gerenciar Servidor lá, ou o bot não foi convidado ainda |
 | Patch não chega no canal mesmo com tudo configurado | Rode `/admin/checar?chave=...` e veja a resposta JSON — ela mostra o erro exato |

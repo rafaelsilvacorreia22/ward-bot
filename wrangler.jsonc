@@ -11,10 +11,11 @@
     "DISCORD_PUBLIC_KEY": "b965f17aab300a2c003fd8cdf4552751b50e5cd2a3002a9b49e3e6b7bc5b4b2b"
   },
   // A cada 15 minutos: confere se saiu patch novo do LoL (Data Dragon, sem
-  // chave) e se a rotação semanal de campeões grátis mudou (precisa da chave
-  // da Riot — ver README).
+  // chave) e notícias. A cada 2 minutos: coleta partidas para o /build (precisa
+  // da chave da Riot — ver README). O texto do segundo tem que bater com
+  // CRON_COLETA em src/index.js.
   "triggers": {
-    "crons": ["*/15 * * * *"]
+    "crons": ["*/15 * * * *", "*/2 * * * *"]
   },
   "ai": {
     "binding": "AI"
