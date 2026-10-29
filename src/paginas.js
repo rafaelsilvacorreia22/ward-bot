@@ -410,7 +410,31 @@ const ESTILO = `
     background: var(--grad-titulo);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .heroi .ornamento { margin-bottom: 30px; }
+  .heroi .ornamento { margin-bottom: 22px; }
+  /* "Discord" em destaque: o verde do tema puxado para o blurple, para o
+     olho bater primeiro em onde as coisas acontecem. */
+  .heroi h1 .destaque-discord {
+    background: linear-gradient(176deg, #c9d0ff 0%, #8d98ff 50%, #5865f2 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .selos {
+    list-style: none; padding: 0; margin: 0 auto 30px;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+  }
+  .selos li {
+    display: inline-flex; align-items: center; gap: 9px; margin: 0;
+    padding: 9px 16px; border: 1px solid var(--latao-escuro);
+    background: color-mix(in srgb, var(--superficie) 70%, transparent);
+    font-family: "Big Shoulders Display", sans-serif; font-weight: 700;
+    font-size: .95rem; text-transform: uppercase; letter-spacing: .12em; color: var(--texto);
+    clip-path: var(--degrau-p);
+  }
+  .selos code { background: none; border: 0; padding: 0; font-size: .95em; text-transform: none; letter-spacing: 0; }
+  /* Pontinho "ligado", como o status online do Discord. */
+  .selos .ponto {
+    width: 8px; height: 8px; border-radius: 50%; flex: none;
+    background: #23a55a; box-shadow: 0 0 8px #23a55a;
+  }
   .rolar {
     position: absolute; left: 50%; bottom: 22px; z-index: 1; translate: -50% 0;
     display: grid; place-items: center; width: 42px; height: 42px;
@@ -884,8 +908,15 @@ export function landing(clientId, vitrine) {
         <p class="sobrancelha">Bot de Discord · League of Legends</p>
         <!-- O espaço antes de cada <br> é necessário: no celular o <br> some
              (display:none) e sem ele as palavras encostariam uma na outra. -->
-        <h1>Te ajuda <br class="so-largo">sem sair do <br class="so-largo">Discord</h1>
+        <h1>Tudo do LoL, <br><span class="destaque-discord">direto no seu Discord</span></h1>
         <div class="ornamento"><i></i></div>
+        <!-- As três funções como selos: deixa claro, logo de cara, que tudo
+             roda dentro do servidor, sem abrir outro site. -->
+        <ul class="selos">
+          <li><span class="ponto"></span>Patch novo no canal</li>
+          <li><span class="ponto"></span>Notícias oficiais</li>
+          <li><span class="ponto"></span><code>/build</code> do meta</li>
+        </ul>
         <div class="acoes">
           <a class="botao destaque" href="${convite(clientId)}">Adicionar ao Discord</a>
           <a class="botao vazado" href="#funcoes">Ver o que ele faz</a>
