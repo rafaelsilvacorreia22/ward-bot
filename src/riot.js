@@ -1,11 +1,10 @@
-// Dados da Riot: versão do jogo (Data Dragon, CDN pública, sem chave) e
-// rotação semanal de campeões grátis (precisa de chave — ver README sobre a
-// Personal API Key da Riot expirar sozinha a cada 24h).
+// Dados públicos da Riot: versão do jogo, roster de campeões (Data Dragon,
+// CDN pública, sem chave) e o resumo das notas do patch. O que precisa da
+// chave da Riot (partidas para o /build) mora em builds.js.
 
-import { pegarEstado, salvarEstado, limparCacheCampeoesAntigo } from "./db.js";
+import { pegarEstado, salvarEstado, limparCacheAntigo } from "./db.js";
 
 const DDRAGON = "https://ddragon.leagueoflegends.com";
-const RIOT_API = "https://br1.api.riotgames.com";
 
 // Uma rodada do cron chamava versaoAtual() duas ou três vezes (checarPatch,
 // a rotação e, quando há horário diário, a rotação de novo), sempre com a
@@ -70,10 +69,32 @@ export async function resumoPatchEmIngles(versao) {
   return { url, resumo: decodificarEntidadesHtml(match[1]) };
 }
 
-// Usado pelo /admin/emojis pra saber o roster completo (pra subir o ícone de
-// cada campeão como emoji do app).
+// Roster completo: usado pra subir o ícone de cada campeão como emoji do app
+// e pelo autocomplete do /build.
 export async function todosOsCampeoes(env, versao) {
-  return Object.values(await campeoesPorId(env, versao));
+  return Object.entries(await campeoesPorId(env, versao)).map(([id, c]) => ({ id: Number(id), ...c }));
+}
+
+// Acha o campeão pelo que a pessoa digitou ou escolheu no autocomplete:
+// aceita o nome de exibição ("Wukong", "kai'sa") ou o do arquivo
+// ("MonkeyKing"), sem ligar para acento, espaço ou apóstrofo.
+export function normalizarNome(texto) {
+  return String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+}
+
+export async function acharCampeao(env, texto) {
+  const alvo = normalizarNome(texto);
+  if (!alvo) return null;
+  const campeoes = await todosOsCampeoes(env, await versaoAtual());
+  return (
+    campeoes.find((c) => normalizarNome(c.arquivoImagem) === alvo || normalizarNome(c.nome) === alvo) ??
+    campeoes.find((c) => normalizarNome(c.nome).startsWith(alvo)) ??
+    null
+  );
 }
 
 export function urlIconeCampeao(versao, arquivoImagem) {
@@ -120,84 +141,11 @@ async function campeoesPorId(env, versao) {
     try {
       await salvarEstado(env, chave, JSON.stringify(porId));
       // Só a versão atual interessa — sem isso sobraria uma linha por patch.
-      await limparCacheCampeoesAntigo(env, chave);
+      await limparCacheAntigo(env, "campeoes_", chave);
     } catch (err) {
       console.log("Não consegui guardar o cache de campeões:", err.message);
     }
   }
 
   return porId;
-}
-
-// Lança erro se a chave estiver ausente/vencida — quem chama decide o que
-// fazer (o cron loga e segue sem postar, o /rotacao avisa "indisponível").
-export async function rotacaoAtual(env) {
-  const chave = (env.RIOT_API_KEY ?? "").trim();
-  if (!chave) throw new Error("RIOT_API_KEY não configurada");
-
-  // O fetch de um Worker pode guardar resposta GET de terceiro na cache da
-  // Cloudflare. A rotação é justamente o tipo de dado que não pode vir de
-  // cache — a suspeita é que era isso que a congelava: 200, sem erro, e a
-  // mesma lista byte a byte por 12 dias seguidos.
-  //
-  // Só "cache: no-store", sem o cf.cacheTtl: a Cloudflare recusa os dois
-  // juntos ("CacheTtl: 0, is not compatible with cache: no-store header") e
-  // a chamada inteira passa a falhar.
-  const res = await fetch(`${RIOT_API}/lol/platform/v3/champion-rotations`, {
-    headers: { "X-Riot-Token": chave },
-    cache: "no-store",
-  });
-  const bruto = await res.text();
-  if (!res.ok) {
-    throw new Error(`Riot API (rotação) -> ${res.status}: ${bruto.slice(0, 300)}`);
-  }
-
-  let dados;
-  try {
-    dados = JSON.parse(bruto);
-  } catch {
-    throw new Error(`Riot API (rotação) devolveu algo que não é JSON: ${bruto.slice(0, 300)}`);
-  }
-  // Medido em 21/10/2026: a resposta tem só "sr" e "newplayer" — o
-  // "freeChampionIds" da documentação antiga NÃO vem mais. Então "sr" é o
-  // campo certo mesmo; fica o documentado como reserva caso a Riot volte
-  // atrás, e não o contrário.
-  const ids =
-    Array.isArray(dados.sr) && dados.sr.length ? dados.sr : dados.freeChampionIds;
-  if (!Array.isArray(ids)) {
-    throw new Error(`Riot API (rotação) em formato inesperado: ${bruto.slice(0, 300)}`);
-  }
-
-  // Medido em 21/10/2026: br1, na1 e euw1 devolvem a MESMA lista, então o
-  // congelamento não é da plataforma brasileira — é do endpoint inteiro. A
-  // sonda que comparava as três regiões foi removida depois de responder;
-  // ela triplicava as chamadas à Riot a cada 15 minutos.
-
-  // Registro de diagnóstico: formato da resposta e, principalmente, os
-  // cabeçalhos de cache. Se vier "cf-cache-status: HIT" com idade alta, a
-  // lista congelada é cache e não a Riot. Nada aqui expõe a chave.
-  if (env?.DB) {
-    await salvarEstado(
-      env,
-      "rotacao_formato",
-      JSON.stringify({
-        chaves: Object.keys(dados),
-        sr: Array.isArray(dados.sr) ? dados.sr : null,
-        cache: {
-          cfCacheStatus: res.headers.get("cf-cache-status"),
-          age: res.headers.get("age"),
-          cacheControl: res.headers.get("cache-control"),
-          date: res.headers.get("date"),
-        },
-        em: new Date().toISOString(),
-      })
-    ).catch(() => {});
-  }
-
-  const versao = await versaoAtual();
-  const porId = await campeoesPorId(env, versao);
-  return ids.map((id) => {
-    const campeao = porId[id];
-    return { nome: campeao?.nome ?? `#${id}`, arquivoImagem: campeao?.arquivoImagem ?? null };
-  });
 }

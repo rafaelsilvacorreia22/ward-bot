@@ -6,12 +6,14 @@ export const API = "https://discord.com/api/v10";
 export const TIPO_INTERACAO = {
   PING: 1,
   COMANDO: 2,
+  AUTOCOMPLETE: 4,
 };
 
 export const RESPOSTA = {
   PONG: 1,
   MENSAGEM: 4,
   ADIAR_MENSAGEM: 5, // mostra "pensando..." e libera os 3s de prazo
+  SUGESTOES: 8, // resposta do autocomplete
 };
 
 export const EFEMERA = 64; // flag de mensagem que só o autor enxerga
@@ -138,12 +140,6 @@ export async function enviarMensagem(env, canalId, corpo) {
   });
 }
 
-// Apagar mensagem própria não exige a permissão "Gerenciar mensagens" — só
-// vale para o que o próprio bot postou.
-export async function apagarMensagem(env, canalId, mensagemId) {
-  return api(env, `/channels/${canalId}/messages/${mensagemId}`, { method: "DELETE" });
-}
-
 // Comando global (não por servidor): propaga pra todo lugar onde o bot está
 // em até ~1h, sem precisar registrar servidor a servidor — essencial pra um
 // bot pensado pra entrar em vários servidores diferentes.
@@ -158,8 +154,8 @@ export async function registrarComandosGlobais(env, definicoes) {
 
 // Emojis do próprio aplicativo (não de um servidor): dá pra usar em qualquer
 // mensagem que o bot mandar, em qualquer servidor, sem gastar os slots de
-// emoji de ninguém. É assim que a rotação mostra o ícone de cada campeão sem
-// precisar de 20 embeds grandes — vira só texto com emoji, uma mensagem só.
+// emoji de ninguém. É assim que o /build mostra o ícone de cada item, runa e
+// feitiço — vira texto com emoji, um embed só.
 export async function listarEmojisDoApp(env) {
   const app = await api(env, "/oauth2/applications/@me");
   const resposta = await api(env, `/applications/${app.id}/emojis`);
@@ -173,15 +169,23 @@ export async function criarEmojiDoApp(env, appId, nome, dataUri) {
   });
 }
 
-// Troca cada campeão por seu emoji (se já tiver sido subido) e junta tudo numa
-// mensagem de texto só — bem mais compacto do que vários embeds.
-export async function mensagemComIcones(env, campeoes, cabecalho) {
-  const { emojis } = await listarEmojisDoApp(env);
-  const idPorNome = new Map(emojis.map((e) => [e.name, e.id]));
+// Nome do emoji → id. Listar custa duas chamadas à Discord, e o conjunto só
+// muda quando a sincronização sobe ícone novo, então fica 10 minutos em
+// memória.
+const VALIDADE_EMOJIS_MS = 10 * 60_000;
+let emojisEmCache = null;
+let emojisValidosAte = 0;
 
-  const partes = campeoes.map((c) => {
-    const emojiId = idPorNome.get(c.arquivoImagem);
-    return emojiId ? `<:${c.arquivoImagem}:${emojiId}>` : c.nome;
-  });
-  return `${cabecalho}\n${partes.join("  ")}`;
+export async function mapaDeEmojis(env) {
+  if (emojisEmCache && Date.now() < emojisValidosAte) return emojisEmCache;
+  const { emojis } = await listarEmojisDoApp(env);
+  emojisEmCache = new Map(emojis.map((e) => [e.name, e.id]));
+  emojisValidosAte = Date.now() + VALIDADE_EMOJIS_MS;
+  return emojisEmCache;
+}
+
+// Emoji se já tiver sido subido; senão, nada (quem chama põe o nome ao lado).
+export function emoji(mapa, nome) {
+  const id = mapa?.get(nome);
+  return id ? `<:${nome}:${id}>` : "";
 }

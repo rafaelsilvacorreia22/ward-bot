@@ -1,5 +1,6 @@
 // Entrada do Worker: rotas HTTP (landing, dashboard, OAuth, interações do
-// Discord) e o cron que confere patch novo / rotação semanal.
+// Discord, páginas de build) e os crons — o de 15 minutos confere patch novo
+// e notícias; o de 2 minutos coleta partidas para o /build.
 
 import {
   TIPO_INTERACAO,
@@ -10,11 +11,9 @@ import {
   listarServidoresDoBot,
   listarCanaisTexto,
   enviarMensagem,
-  apagarMensagem,
   registrarComandosGlobais,
   listarEmojisDoApp,
   criarEmojiDoApp,
-  mensagemComIcones,
   api,
 } from "./discord.js";
 import { COMANDOS, DEFINICOES } from "./comandos.js";
@@ -29,22 +28,19 @@ import {
   paginaPrivacidade,
   paginaTermos,
   paginaUso,
+  paginaListaBuilds,
+  paginaBuild,
 } from "./paginas.js";
 import {
   pegarConfig,
   salvarConfig,
   listarPatchAtivo,
-  listarRotacaoAtiva,
   listarNoticiasAtiva,
   urlsDeNoticiasPostadas,
   marcarNoticiaPostada,
   marcarNoticiasSemeadas,
   registrarErroEnvio,
   limparErroEnvio,
-  listarRotacaoDiarioPendente,
-  marcarRotacaoDiario,
-  pegarUltimaMensagemRotacao,
-  salvarUltimaMensagemRotacao,
   listarTodasConfigs,
   registrarUsoComando,
   listarUsoComandos,
@@ -55,12 +51,28 @@ import {
   versaoAtual,
   resumoPatchEmIngles,
   LINK_NOTAS_PATCH,
-  rotacaoAtual,
   todosOsCampeoes,
+  acharCampeao,
   urlIconeCampeao,
 } from "./riot.js";
+import {
+  MODOS,
+  ROTAS,
+  coletarPartidas,
+  limparColetaAntiga,
+  montarBuild,
+  dadosDoJogo,
+  totalColetado,
+  urlIconeItem,
+  urlIconeRuna,
+  urlIconeFeitico,
+} from "./builds.js";
 import { traduzirParaPtBr } from "./traducao.js";
 import { buscarNoticias, embedDaNoticia } from "./noticias.js";
+
+// Os dois crons do wrangler.jsonc. O texto tem que bater exatamente com o de
+// lá — é por ele que o scheduled sabe qual dos dois disparou.
+const CRON_COLETA = "*/2 * * * *";
 
 const SO_NO_SERVIDOR = {
   type: RESPOSTA.MENSAGEM,
@@ -82,6 +94,18 @@ async function executarComSeguranca(handler, rotulo) {
 async function tratarInteracao(interacao, env, ctx, origin) {
   if (interacao.type === TIPO_INTERACAO.PING) {
     return json({ type: RESPOSTA.PONG });
+  }
+
+  // Sugestões do autocomplete: não contam como uso (disparam a cada tecla).
+  if (interacao.type === TIPO_INTERACAO.AUTOCOMPLETE) {
+    const comando = COMANDOS[interacao.data.name];
+    if (!comando?.autocompletar) return json({ type: RESPOSTA.SUGESTOES, data: { choices: [] } });
+    try {
+      return json(await comando.autocompletar(env, interacao));
+    } catch (err) {
+      console.log("Falha no autocomplete:", err.message);
+      return json({ type: RESPOSTA.SUGESTOES, data: { choices: [] } });
+    }
   }
 
   if (interacao.type === TIPO_INTERACAO.COMANDO) {
@@ -142,9 +166,8 @@ async function servidoresDoUsuario(env, sessao) {
 // Roda a ação em vários servidores sem estourar o limite de sub-requests do
 // Worker nem apanhar rate limit da Discord: um punhado por vez, e erro de um
 // servidor não derruba os outros.
-// `funcao` ("patch" | "rotacao") diz em qual coluna gravar a falha. Este é o
-// único caminho por onde patch e rotação postam, então registrar aqui cobre
-// os dois de uma vez.
+// `funcao` ("patch") diz em qual coluna gravar a falha. Este é o único
+// caminho por onde o alerta de patch posta, então registrar aqui cobre tudo.
 async function paraCadaServidor(configs, env, acao, funcao, tamanhoLote = 8) {
   for (let i = 0; i < configs.length; i += tamanhoLote) {
     const lote = configs.slice(i, i + tamanhoLote);
@@ -164,29 +187,10 @@ async function paraCadaServidor(configs, env, acao, funcao, tamanhoLote = 8) {
   }
 }
 
-// A rotação é sempre a mesma lista até mudar de semana, então em vez de
-// empilhar uma mensagem nova por cima da antiga, apaga a anterior e posta a
-// atual — o canal fica só com a rotação válida.
-async function postarRotacaoSubstituindo(env, guildId, canalId, corpo) {
-  const anterior = await pegarUltimaMensagemRotacao(env, guildId);
-  if (anterior?.mensagem_id) {
-    try {
-      await apagarMensagem(env, anterior.canal_id ?? canalId, anterior.mensagem_id);
-    } catch (err) {
-      // Já não existe (apagada à mão, canal excluído): segue e posta a nova.
-      console.log(`Não apaguei a rotação anterior de ${guildId}:`, err.message);
-    }
-  }
-
-  const nova = await enviarMensagem(env, canalId, corpo);
-  await salvarUltimaMensagemRotacao(env, guildId, canalId, nova?.id ?? null);
-  return nova;
-}
-
 // Traz o resumo oficial da Riot (traduzido) em vez de só um link — a Riot não
 // publica o texto das notas em nenhuma API, mas o <meta description> da
 // própria página do patch já resume as novidades em uma frase. Usado tanto
-// pelo alerta automático quanto pelo botão "postar agora" e pelo horário fixo.
+// pelo alerta automático quanto pelo botão "postar agora".
 async function construirEmbedPatch(env) {
   const versao = await versaoAtual();
   let url = LINK_NOTAS_PATCH;
@@ -199,14 +203,6 @@ async function construirEmbedPatch(env) {
     console.log("Não consegui buscar o resumo oficial do patch:", err.message);
   }
   return { versao, corpo: { embeds: [{ title: `Saiu o patch ${versao}!`, url, description: descricao, color: 0x0ac8b9 }] } };
-}
-
-// Idem, mas pra rotação — lança erro se a chave da Riot estiver ausente ou
-// vencida (quem chama decide como avisar).
-async function construirMensagemRotacao(env) {
-  const campeoes = await rotacaoAtual(env);
-  const texto = await mensagemComIcones(env, campeoes, "**Rotação grátis da semana:**");
-  return { campeoes, corpo: { content: texto } };
 }
 
 // `apenasGuild` existe só para teste manual: limita a postagem a um servidor e
@@ -231,71 +227,10 @@ async function checarPatch(env, apenasGuild) {
   return { mudou: true, versao, servidores: alvos.length, teste: Boolean(apenasGuild) };
 }
 
-// Mesma regra do checarPatch quanto ao `apenasGuild`: em teste não grava a
-// assinatura global, senão os outros servidores perderiam o anúncio real.
-async function checarRotacao(env, apenasGuild) {
-  let campeoes, corpo;
-  try {
-    ({ campeoes, corpo } = await construirMensagemRotacao(env));
-  } catch (err) {
-    console.log("Rotação indisponível no cron:", err.message);
-    // A falha fica GRAVADA, não só no console. Era só console.log, e foi
-    // por isso que a rotação pôde envelhecer duas semanas sem ninguém
-    // perceber: o site seguia mostrando a última lista boa como se fosse a
-    // da semana. Diferente dos outros erros, este não é de um servidor —
-    // é da fonte — então mora no bot_state, não na guild_config.
-    await salvarEstado(env, "rotacao_erro", String(err.message ?? "").slice(0, 300)).catch(() => {});
-    await salvarEstado(env, "rotacao_erro_em", new Date().toISOString()).catch(() => {});
-    return { mudou: false, erro: err.message };
-  }
-
-  // Guarda a rotação para a vitrine da inicial, junto com a hora em que foi
-  // obtida — é esse carimbo que deixa a página saber se a lista ainda vale
-  // ou se está velha demais para ser anunciada como "desta semana".
-  await salvarEstado(
-    env,
-    "vitrine_rotacao",
-    JSON.stringify(campeoes.filter((c) => c.arquivoImagem).map((c) => ({ nome: c.nome, img: c.arquivoImagem })))
-  ).catch(() => {});
-  await salvarEstado(env, "vitrine_rotacao_em", new Date().toISOString()).catch(() => {});
-  // Voltou a responder: limpa o erro para o painel parar de acusar.
-  await salvarEstado(env, "rotacao_erro", "").catch(() => {});
-
-  // Assinatura da lista (não "semana ISO"): a rotação não segue semana cheia.
-  const assinatura = campeoes.map((c) => c.nome).sort().join("|");
-  const anterior = await pegarEstado(env, "last_rotation_signature");
-
-  // Carimbo de quando a LISTA mudou — diferente de quando a busca aconteceu.
-  // Essa distinção é o ponto: em 10/2026 a busca vinha dando certo de 15 em
-  // 15 minutos enquanto o conteúdo estava parado havia 12 dias, e nada
-  // media isso. "Última busca" não prova que a rotação está girando.
-  if (assinatura !== anterior) {
-    await salvarEstado(env, "rotacao_mudou_em", new Date().toISOString()).catch(() => {});
-  }
-
-  if (assinatura === anterior && !apenasGuild) return { mudou: false };
-
-  const todos = await listarRotacaoAtiva(env);
-  const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
-  await paraCadaServidor(
-    alvos,
-    env,
-    (config) =>
-      config.rotation_channel_id
-        ? postarRotacaoSubstituindo(env, config.guild_id, config.rotation_channel_id, corpo)
-        : null,
-    "rotacao"
-  );
-  if (!apenasGuild) await salvarEstado(env, "last_rotation_signature", assinatura);
-  return { mudou: true, servidores: alvos.length, teste: Boolean(apenasGuild) };
-}
-
-// Traduz a falha num aviso que a pessoa entenda, em vez de "deu erro": as
-// duas causas de longe mais comuns são a chave da Riot vencida e o bot sem
-// permissão no canal escolhido.
+// Traduz a falha num aviso que a pessoa entenda, em vez de "deu erro": a
+// causa de longe mais comum é o bot sem permissão no canal escolhido.
 function classificarFalha(err) {
   const mensagem = err.message ?? "";
-  if (/apikey|RIOT_API_KEY|rotação\) -> 401|rotação\) -> 403/i.test(mensagem)) return "chave_riot";
   if (/50001|50013|-> 403/.test(mensagem)) return "sem_permissao";
   return "erro";
 }
@@ -392,128 +327,143 @@ async function checarNoticias(env, apenasGuild) {
   return resumo;
 }
 
-// Marca o patch e a rotação atuais como "já anunciados", sem postar nada.
-// Serve para depois de um teste ou de qualquer mexida manual no banco: sem
-// isso, o próximo cron trataria tudo como novidade e reanunciaria em todos os
+// Marca o patch atual como "já anunciado", sem postar nada. Serve para
+// depois de um teste ou de qualquer mexida manual no banco: sem isso, o
+// próximo cron trataria tudo como novidade e reanunciaria em todos os
 // servidores.
 async function sincronizarEstado(env) {
   const versao = await versaoAtual();
   await salvarEstado(env, "last_patch_version", versao);
-
-  let rotacao = "não sincronizada (a Riot não respondeu)";
-  try {
-    const campeoes = await rotacaoAtual(env);
-    await salvarEstado(env, "last_rotation_signature", campeoes.map((c) => c.nome).sort().join("|"));
-    rotacao = `${campeoes.length} campeões`;
-  } catch (err) {
-    console.log("Não sincronizei a rotação:", err.message);
-  }
-
-  return { patch: versao, rotacao };
+  return { patch: versao };
 }
 
-function horaAtualBrasil() {
-  return Number(
-    new Intl.DateTimeFormat("en-US", { hour: "2-digit", hour12: false, timeZone: "America/Sao_Paulo" }).format(
-      new Date()
-    )
-  );
-}
-
-function dataAtualBrasil() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-}
-
-// Servidores com horário fixo diário configurado: posta a informação atual
-// (não só quando muda) uma vez por dia, no horário escolhido por cada um.
-async function checarPostagensDiarias(env, apenasGuild) {
-  const hora = horaAtualBrasil();
-  const hoje = dataAtualBrasil();
-  const soDoTeste = (lista) => (apenasGuild ? lista.filter((c) => c.guild_id === apenasGuild) : lista);
-
-  const alvosRotacao = soDoTeste(await listarRotacaoDiarioPendente(env, hora, hoje));
-  if (alvosRotacao.length) {
-    try {
-      const { corpo } = await construirMensagemRotacao(env);
-      for (const guild of alvosRotacao) {
-        try {
-          await postarRotacaoSubstituindo(env, guild.guild_id, guild.rotation_channel_id, corpo);
-          await marcarRotacaoDiario(env, guild.guild_id, hoje);
-        } catch (err) {
-          console.log(`Falha na postagem diária de rotação (${guild.guild_id}):`, err.message);
-        }
-      }
-    } catch (err) {
-      console.log("Rotação indisponível na postagem diária:", err.message);
-    }
-  }
-
-  return { rotacao: alvosRotacao.length };
-}
-
-// Dados que a página inicial usa como vitrine (patch atual, rotação da semana
-// e últimas notícias). Vem tudo do que o cron já guardou no banco: a inicial
+// Dados que a página inicial usa como vitrine (patch atual, a build do dia e
+// últimas notícias). Vem tudo do que o cron já guardou no banco: a inicial
 // nunca chama a Riot nem o site do LoL. É decoração — se faltar, a página sai
 // sem ela, nunca quebra.
 async function montarVitrine(env) {
-  const comoLista = (texto) => {
+  const ler = (texto, reserva) => {
     try {
-      const valor = JSON.parse(texto ?? "null");
-      return Array.isArray(valor) ? valor : [];
+      return JSON.parse(texto ?? "null") ?? reserva;
     } catch {
-      return [];
+      return reserva;
     }
   };
 
   try {
-    const [patch, rotacao, noticias, mudouEm] = await Promise.all([
+    const [patch, noticias, build] = await Promise.all([
       pegarEstado(env, "last_patch_version"),
-      pegarEstado(env, "vitrine_rotacao"),
       pegarEstado(env, "vitrine_noticias"),
-      pegarEstado(env, "rotacao_mudou_em"),
+      pegarEstado(env, "vitrine_build"),
     ]);
-    return {
-      patch,
-      campeoes: comoLista(rotacao),
-      noticias: comoLista(noticias),
-      // Idade da LISTA, não da busca. Era esse o erro da primeira tentativa:
-      // a busca é bem-sucedida de 15 em 15 minutos mesmo quando a resposta
-      // está congelada, então "última busca" sempre parecia fresca.
-      rotacaoDias: mudouEm ? (Date.now() - new Date(mudouEm).getTime()) / 86400000 : null,
-    };
+    const lista = ler(noticias, []);
+    return { patch, noticias: Array.isArray(lista) ? lista : [], build: ler(build, null) };
   } catch (err) {
     console.log("Não consegui montar a vitrine da inicial:", err.message);
     return null;
   }
 }
 
-// Sobe o ícone de cada campeão como emoji do aplicativo (não de um servidor),
-// pra poder usar em qualquer mensagem sem gastar slot de emoji de ninguém.
-// Processa só um lote por chamada (o plano free do Worker tem limite de 50
-// sub-requests por execução) — chamar de novo continua de onde parou, porque
-// pula quem já tem emoji.
-async function subirEmojisFaltantes(env, limite = 20) {
+// Campeões populares o bastante para quase sempre terem amostra. Um por dia
+// vira a "build do dia" da página inicial.
+const VITRINE_CAMPEOES = ["Ahri", "Jinx", "LeeSin", "Fizz", "Darius", "Thresh", "Yasuo", "Kaisa", "Lux", "Garen"];
+const VITRINE_VALIDADE_MS = 3 * 60 * 60 * 1000;
+
+// Guarda pronta a build que a inicial mostra, para a página não agregar nada
+// a cada visita. Refeita a cada 3 horas, porque no começo de um patch a
+// amostra cresce rápido.
+async function atualizarVitrineBuild(env) {
+  const em = await pegarEstado(env, "vitrine_build_em");
+  if (em && Date.now() - new Date(em).getTime() < VITRINE_VALIDADE_MS) return { pulado: true };
+
+  const dia = Math.floor(Date.now() / 86400000);
+  for (let i = 0; i < VITRINE_CAMPEOES.length; i++) {
+    const campeao = await acharCampeao(env, VITRINE_CAMPEOES[(dia + i) % VITRINE_CAMPEOES.length]);
+    if (!campeao) continue;
+    const build = await montarBuild(env, campeao.id, 420);
+    if (!build?.nucleo || build.jogos < 20) continue;
+    await salvarEstado(
+      env,
+      "vitrine_build",
+      JSON.stringify({
+        campeao: { nome: campeao.nome, img: campeao.arquivoImagem },
+        rota: build.rota,
+        taxa: build.taxa,
+        jogos: build.jogos,
+        itens: [...build.nucleo.itens, ...(build.botas ? [Number(build.botas.chave)] : [])],
+        patches: build.patches,
+      })
+    );
+    await salvarEstado(env, "vitrine_build_em", new Date().toISOString());
+    return { campeao: campeao.nome };
+  }
+  return { semAmostra: true };
+}
+
+// Sobe como emoji do aplicativo (não de um servidor) o ícone de cada item,
+// runa, feitiço e campeão, pra poder usar em qualquer mensagem sem gastar
+// slot de emoji de ninguém. Roda um lote por vez dentro do cron da coleta (o
+// plano free do Worker tem limite de 50 sub-requests por execução) e pula
+// quem já tem emoji, então patch novo com item novo se resolve sozinho.
+async function sincronizarEmojis(env, limite = 8) {
   const versao = await versaoAtual();
-  const campeoes = await todosOsCampeoes(env, versao);
-  const { appId, emojis } = await listarEmojisDoApp(env);
+  if ((await pegarEstado(env, "emojis_completos")) === versao) return { completo: true };
+
+  const [dados, campeoes, { appId, emojis }] = await Promise.all([
+    dadosDoJogo(env, versao),
+    todosOsCampeoes(env, versao),
+    listarEmojisDoApp(env),
+  ]);
   const jaTem = new Set(emojis.map((e) => e.name));
 
-  const faltando = campeoes.filter((c) => !jaTem.has(c.arquivoImagem));
-  const lote = faltando.slice(0, limite);
+  // Itens primeiro: são o coração do /build. Só os de id curto — os de seis
+  // dígitos são variantes de modos temporários (Arena etc.).
+  const tipoOrdem = { lendario: 0, botas: 1, componente: 2 };
+  const itens = Object.entries(dados.itens)
+    .filter(([id]) => Number(id) < 10000)
+    .sort(([, a], [, b]) => tipoOrdem[a.tipo] - tipoOrdem[b.tipo])
+    .map(([id]) => ({ nome: `i${id}`, url: urlIconeItem(versao, id) }));
+  const todos = [
+    ...itens,
+    ...Object.entries(dados.runas).map(([id, r]) => ({ nome: `r${id}`, url: urlIconeRuna(r.icone) })),
+    ...Object.entries(dados.feiticos).map(([key, f]) => ({ nome: `s${key}`, url: urlIconeFeitico(versao, f.imagem) })),
+    ...campeoes.map((c) => ({ nome: c.arquivoImagem, url: urlIconeCampeao(versao, c.arquivoImagem) })),
+  ];
 
-  for (const campeao of lote) {
+  const faltando = todos.filter((t) => !jaTem.has(t.nome));
+  const lote = faltando.slice(0, limite);
+  let falhas = 0;
+  for (const alvo of lote) {
     try {
-      const res = await fetch(urlIconeCampeao(versao, campeao.arquivoImagem));
+      const res = await fetch(alvo.url);
       if (!res.ok) throw new Error(`download -> ${res.status}`);
       const bytes = new Uint8Array(await res.arrayBuffer());
-      const base64 = btoa(String.fromCharCode(...bytes));
-      await criarEmojiDoApp(env, appId, campeao.arquivoImagem, `data:image/png;base64,${base64}`);
+      let binario = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binario += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      await criarEmojiDoApp(env, appId, alvo.nome, `data:image/png;base64,${btoa(binario)}`);
     } catch (err) {
-      console.log(`Falha ao subir emoji de ${campeao.arquivoImagem}:`, err.message);
+      falhas++;
+      console.log(`Falha ao subir emoji ${alvo.nome}:`, err.message);
     }
   }
 
-  return { feitos: lote.length, faltam: faltando.length - lote.length, total: campeoes.length };
+  // Só marca como completo quando não falta nada — um ícone que falhou
+  // (imagem fora do ar) é tentado de novo na próxima rodada.
+  if (faltando.length === lote.length && !falhas) await salvarEstado(env, "emojis_completos", versao);
+  return { feitos: lote.length - falhas, falhas, faltam: faltando.length - lote.length, total: todos.length };
+}
+
+// Registra os slash commands sozinho quando a lista muda (comando novo,
+// opção nova). Sem isto, todo deploy que mexe em comando dependia de alguém
+// lembrar de abrir /registrar-comandos com a chave.
+async function registrarComandosSeMudaram(env) {
+  const assinatura = JSON.stringify(DEFINICOES);
+  if ((await pegarEstado(env, "comandos_registrados")) === assinatura) return { mudou: false };
+  await registrarComandosGlobais(env, DEFINICOES);
+  await salvarEstado(env, "comandos_registrados", assinatura);
+  return { mudou: true };
 }
 
 // Roteia as requisições HTTP. Quem chama (o fetch lá embaixo) é que trata as
@@ -535,16 +485,30 @@ async function rotear(request, env, ctx) {
       }
     }
 
-    // Sobe os ícones de campeão que ainda faltam como emoji do app (um lote
-    // por chamada — ver subirEmojisFaltantes). Chame de novo até "faltam": 0.
+    // Adianta um lote de emojis (o cron da coleta já faz isso sozinho — ver
+    // sincronizarEmojis). Chame de novo até "faltam": 0.
     if (url.pathname === "/admin/emojis") {
       const chave = (env.SETUP_KEY ?? "").trim();
       if (!chave || url.searchParams.get("chave") !== chave) {
         return new Response("Chave inválida.", { status: 401 });
       }
       try {
-        const resultado = await subirEmojisFaltantes(env);
+        const resultado = await sincronizarEmojis(env, 20);
         return json({ ok: true, ...resultado });
+      } catch (err) {
+        return json({ ok: false, erro: err.message }, 500);
+      }
+    }
+
+    // Roda uma rodada da coleta de partidas na hora, para testar a chave da
+    // Riot sem esperar o cron.
+    if (url.pathname === "/admin/coletar") {
+      const chave = (env.SETUP_KEY ?? "").trim();
+      if (!chave || url.searchParams.get("chave") !== chave) {
+        return new Response("Chave inválida.", { status: 401 });
+      }
+      try {
+        return json({ ok: true, ...(await coletarPartidas(env)) });
       } catch (err) {
         return json({ ok: false, erro: err.message }, 500);
       }
@@ -566,21 +530,22 @@ async function rotear(request, env, ctx) {
           return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
         }
       }
-      const [servidores, configs, uso, rotacaoErro, rotacaoErroEm, rotacaoEm, rotacaoMudouEm] =
+      const [servidores, configs, uso, coletaErro, coletaErroEm, coletaOkEm, coletado, emojisCompletos] =
         await Promise.all([
           listarServidoresDoBot(env),
           listarTodasConfigs(env),
           listarUsoComandos(env),
-          pegarEstado(env, "rotacao_erro"),
-          pegarEstado(env, "rotacao_erro_em"),
-          pegarEstado(env, "vitrine_rotacao_em"),
-          pegarEstado(env, "rotacao_mudou_em"),
+          pegarEstado(env, "coleta_erro"),
+          pegarEstado(env, "coleta_erro_em"),
+          pegarEstado(env, "coleta_ok_em"),
+          totalColetado(env).catch(() => []),
+          pegarEstado(env, "emojis_completos"),
         ]);
-      // A falha da fonte da rotação não é de nenhum servidor em particular,
-      // então entra aqui como estado global do bot.
+      // A saúde da coleta não é de nenhum servidor em particular, então
+      // entra aqui como estado global do bot.
       return paginaHtml(
         "Uso do Ward",
-        paginaUso(servidores, configs, uso, { rotacaoErro, rotacaoErroEm, rotacaoEm, rotacaoMudouEm })
+        paginaUso(servidores, configs, uso, { coletaErro, coletaErroEm, coletaOkEm, coletado, emojisCompletos })
       );
     }
 
@@ -618,9 +583,30 @@ async function rotear(request, env, ctx) {
       }
       const patch = await checarPatch(env, apenasGuild).catch((err) => ({ erro: err.message }));
       const noticias = await checarNoticias(env, apenasGuild).catch((err) => ({ erro: err.message }));
-      const rotacao = await checarRotacao(env, apenasGuild).catch((err) => ({ erro: err.message }));
-      const diarias = await checarPostagensDiarias(env, apenasGuild).catch((err) => ({ erro: err.message }));
-      return json({ servidor: apenasGuild, patch, noticias, rotacao, diarias });
+      return json({ servidor: apenasGuild, patch, noticias });
+    }
+
+    // Lista de campeões com link para a build de cada um.
+    if (url.pathname === "/build" && request.method === "GET") {
+      const versao = await versaoAtual();
+      const campeoes = await todosOsCampeoes(env, versao);
+      return paginaHtml("Builds do meta — Ward", paginaListaBuilds(campeoes, versao));
+    }
+
+    // A mesma build do /build, em página: ícones grandes e o link que o
+    // embed do Discord aponta.
+    const buildMatch = url.pathname.match(/^\/build\/([^/]+)$/);
+    if (buildMatch && request.method === "GET") {
+      const campeao = await acharCampeao(env, decodeURIComponent(buildMatch[1]));
+      if (!campeao) return new Response("Campeão não encontrado.", { status: 404 });
+      const fila = MODOS[url.searchParams.get("modo")] ? Number(url.searchParams.get("modo")) : 420;
+      const rota = ROTAS[url.searchParams.get("rota")] ? url.searchParams.get("rota") : undefined;
+      const versao = await versaoAtual();
+      const [build, dados] = await Promise.all([montarBuild(env, campeao.id, fila, rota), dadosDoJogo(env, versao)]);
+      return paginaHtml(
+        `${campeao.nome} — build — Ward`,
+        paginaBuild({ campeao, build, dados, versao, fila })
+      );
     }
 
     if (url.pathname === "/" && request.method === "GET") {
@@ -665,10 +651,10 @@ async function rotear(request, env, ctx) {
       return paginaHtml("Seus servidores", listaServidores(servidores, env.DISCORD_CLIENT_ID, ehDono));
     }
 
-    // Botões "postar agora": usam o canal que está selecionado no formulário
-    // na hora (mesmo que ainda não tenha sido salvo), postam uma vez e voltam
-    // pra página de config com um aviso — não mexem no horário/estado do cron.
-    const postarMatch = url.pathname.match(/^\/dashboard\/(\d+)\/postar-(patch|rotacao)$/);
+    // Botão "postar agora": usa o canal que está selecionado no formulário
+    // na hora (mesmo que ainda não tenha sido salvo), posta uma vez e volta
+    // pra página de config com um aviso — não mexe no estado do cron.
+    const postarMatch = url.pathname.match(/^\/dashboard\/(\d+)\/postar-(patch)$/);
     if (postarMatch && request.method === "POST") {
       const [, guildId, tipo] = postarMatch;
       const sessao = await pegarSessao(env, request);
@@ -680,21 +666,15 @@ async function rotear(request, env, ctx) {
       }
 
       const dados = await request.formData();
-      const canalId =
-        tipo === "patch" ? dados.get("patch_channel_id") : dados.get("rotation_channel_id");
+      const canalId = dados.get("patch_channel_id");
 
       let status = tipo;
       if (!canalId) {
         status = "sem_canal";
       } else {
         try {
-          if (tipo === "patch") {
-            const { corpo } = await construirEmbedPatch(env);
-            await enviarMensagem(env, canalId, corpo);
-          } else {
-            const { corpo } = await construirMensagemRotacao(env);
-            await postarRotacaoSubstituindo(env, guildId, canalId, corpo);
-          }
+          const { corpo } = await construirEmbedPatch(env);
+          await enviarMensagem(env, canalId, corpo);
         } catch (err) {
           console.log(`Falha ao postar ${tipo} manualmente:`, err.message);
           status = classificarFalha(err);
@@ -778,15 +758,11 @@ async function rotear(request, env, ctx) {
       let salvo = false;
       if (request.method === "POST") {
         const dados = await request.formData();
-        const horaRotacao = dados.get("rotation_daily_hour");
         await salvarConfig(env, guildId, {
           patch_enabled: dados.get("patch_enabled") === "on",
           patch_channel_id: dados.get("patch_channel_id") || null,
           news_enabled: dados.get("news_enabled") === "on",
           news_channel_id: dados.get("news_channel_id") || null,
-          rotation_enabled: dados.get("rotation_enabled") === "on",
-          rotation_channel_id: dados.get("rotation_channel_id") || null,
-          rotation_daily_hour: horaRotacao ? Number(horaRotacao) : null,
         });
         salvo = true;
         ctx.waitUntil(
@@ -849,6 +825,31 @@ export default {
   },
 
   async scheduled(evento, env, ctx) {
+    // A coleta roda num disparo próprio, de 2 em 2 minutos: cada execução do
+    // Worker tem seu próprio limite de sub-requests e de CPU, então separar
+    // impede que a coleta coma o orçamento do aviso de patch e vice-versa.
+    if (evento.cron === CRON_COLETA) {
+      ctx.waitUntil(
+        (async () => {
+          try {
+            const coleta = await coletarPartidas(env);
+            await salvarEstado(env, "coleta_ok_em", new Date().toISOString());
+            await salvarEstado(env, "coleta_erro", "");
+            console.log("coleta:", JSON.stringify(coleta));
+          } catch (err) {
+            // Gravado, não só no console: foi a lição da rotação, que ficou
+            // parada duas semanas sem ninguém perceber.
+            console.log("Coleta falhou:", err.message);
+            await salvarEstado(env, "coleta_erro", String(err.message ?? "").slice(0, 300)).catch(() => {});
+            await salvarEstado(env, "coleta_erro_em", new Date().toISOString()).catch(() => {});
+          }
+          const emojis = await sincronizarEmojis(env).catch((err) => ({ erro: err.message }));
+          if (!emojis.completo) console.log("emojis:", JSON.stringify(emojis));
+        })()
+      );
+      return;
+    }
+
     ctx.waitUntil(
       (async () => {
         // O cron roda de 15 em 15 min porque o horário fixo diário precisa
@@ -863,9 +864,15 @@ export default {
         const noticias = vezDasNoticias
           ? await checarNoticias(env).catch((err) => ({ erro: err.message }))
           : { pulado: true };
-        const rotacao = await checarRotacao(env).catch((err) => ({ erro: err.message }));
-        const diarias = await checarPostagensDiarias(env).catch((err) => ({ erro: err.message }));
-        console.log("cron:", JSON.stringify({ patch, noticias, rotacao, diarias }));
+        const comandos = await registrarComandosSeMudaram(env).catch((err) => ({ erro: err.message }));
+        const vitrine = await atualizarVitrineBuild(env).catch((err) => ({ erro: err.message }));
+        // Faxina da coleta uma vez por dia (na virada do dia em UTC).
+        const agora = new Date(evento.scheduledTime ?? Date.now());
+        const faxina =
+          agora.getUTCHours() === 0 && agora.getUTCMinutes() < 15
+            ? await limparColetaAntiga(env).then(() => ({ ok: true }), (err) => ({ erro: err.message }))
+            : { pulado: true };
+        console.log("cron:", JSON.stringify({ patch, noticias, comandos, vitrine, faxina }));
       })()
     );
   },

@@ -12,32 +12,26 @@ export async function pegarConfig(env, guildId) {
       patch_channel_id: null,
       news_enabled: 0,
       news_channel_id: null,
-      rotation_enabled: 0,
-      rotation_channel_id: null,
-      rotation_daily_hour: null,
       news_seeded_at: null,
       patch_last_error: null,
       patch_last_error_at: null,
       news_last_error: null,
       news_last_error_at: null,
-      rotation_last_error: null,
-      rotation_last_error_at: null,
     }
   );
 }
 
+// As colunas rotation_* continuam na tabela (SQLite antigo não apaga coluna
+// com segurança), mas nada mais lê nem grava nelas desde que a rotação saiu.
 export async function salvarConfig(env, guildId, config) {
   await env.DB.prepare(
-    `INSERT INTO guild_config (guild_id, patch_enabled, patch_channel_id, news_enabled, news_channel_id, rotation_enabled, rotation_channel_id, rotation_daily_hour, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO guild_config (guild_id, patch_enabled, patch_channel_id, news_enabled, news_channel_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(guild_id) DO UPDATE SET
        patch_enabled = excluded.patch_enabled,
        patch_channel_id = excluded.patch_channel_id,
        news_enabled = excluded.news_enabled,
        news_channel_id = excluded.news_channel_id,
-       rotation_enabled = excluded.rotation_enabled,
-       rotation_channel_id = excluded.rotation_channel_id,
-       rotation_daily_hour = excluded.rotation_daily_hour,
        updated_at = datetime('now')`
   )
     .bind(
@@ -45,10 +39,7 @@ export async function salvarConfig(env, guildId, config) {
       config.patch_enabled ? 1 : 0,
       config.patch_channel_id,
       config.news_enabled ? 1 : 0,
-      config.news_channel_id,
-      config.rotation_enabled ? 1 : 0,
-      config.rotation_channel_id,
-      config.rotation_daily_hour
+      config.news_channel_id
     )
     .run();
 }
@@ -58,38 +49,6 @@ export async function listarPatchAtivo(env) {
     "SELECT * FROM guild_config WHERE patch_enabled = 1"
   ).all();
   return results;
-}
-
-export async function listarRotacaoAtiva(env) {
-  const { results } = await env.DB.prepare(
-    "SELECT * FROM guild_config WHERE rotation_enabled = 1"
-  ).all();
-  return results;
-}
-
-// Servidores com horário diário configurado pra essa hora (fuso
-// America/Sao_Paulo) que ainda não receberam a postagem de hoje.
-//
-// O `rotation_enabled = 1` é obrigatório: o horário diário é só *quando*
-// postar, não *se* postar. Sem ele, um servidor que desligou o aviso mas
-// tinha deixado um horário salvo continuava recebendo a rotação todo dia —
-// foi o que aconteceu no "Hora do Chá" em 05/10/2026.
-export async function listarRotacaoDiarioPendente(env, hora, hoje) {
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM guild_config
-     WHERE rotation_enabled = 1
-       AND rotation_daily_hour = ? AND rotation_channel_id IS NOT NULL
-       AND (rotation_last_daily_date IS NULL OR rotation_last_daily_date != ?)`
-  )
-    .bind(hora, hoje)
-    .all();
-  return results;
-}
-
-export async function marcarRotacaoDiario(env, guildId, hoje) {
-  await env.DB.prepare("UPDATE guild_config SET rotation_last_daily_date = ? WHERE guild_id = ?")
-    .bind(hoje, guildId)
-    .run();
 }
 
 export async function listarNoticiasAtiva(env) {
@@ -120,7 +79,6 @@ export async function marcarNoticiaPostada(env, guildId, url) {
 const COLUNAS_ERRO = {
   patch: { texto: "patch_last_error", quando: "patch_last_error_at" },
   noticias: { texto: "news_last_error", quando: "news_last_error_at" },
-  rotacao: { texto: "rotation_last_error", quando: "rotation_last_error_at" },
 };
 
 function colunasDe(funcao) {
@@ -191,35 +149,12 @@ export async function listarUsoComandos(env) {
   return results;
 }
 
-export async function pegarUltimaMensagemRotacao(env, guildId) {
-  return env.DB.prepare(
-    `SELECT rotation_last_message_id AS mensagem_id,
-            rotation_last_message_channel_id AS canal_id
-     FROM guild_config WHERE guild_id = ?`
-  )
-    .bind(guildId)
-    .first();
-}
-
-// Upsert e não update: o botão "postar agora" do painel funciona mesmo antes
-// de o servidor ter salvado configuração, então a linha pode não existir.
-export async function salvarUltimaMensagemRotacao(env, guildId, canalId, mensagemId) {
-  await env.DB.prepare(
-    `INSERT INTO guild_config (guild_id, rotation_last_message_id, rotation_last_message_channel_id)
-     VALUES (?, ?, ?)
-     ON CONFLICT(guild_id) DO UPDATE SET
-       rotation_last_message_id = excluded.rotation_last_message_id,
-       rotation_last_message_channel_id = excluded.rotation_last_message_channel_id`
-  )
-    .bind(guildId, mensagemId, canalId)
-    .run();
-}
-
-// O cache do roster é guardado com a versão do patch na chave; depois de
-// gravar a nova, as antigas não servem mais pra nada.
-export async function limparCacheCampeoesAntigo(env, chaveAtual) {
-  await env.DB.prepare("DELETE FROM bot_state WHERE key LIKE 'campeoes\\_%' ESCAPE '\\' AND key != ?")
-    .bind(chaveAtual)
+// Os caches de dados do jogo (roster, itens/runas) são guardados com a versão
+// do patch na chave; depois de gravar a nova, as antigas não servem mais pra
+// nada. O prefixo vem sempre do código (ver regra do topo do arquivo).
+export async function limparCacheAntigo(env, prefixo, chaveAtual) {
+  await env.DB.prepare("DELETE FROM bot_state WHERE key LIKE ? ESCAPE '\\' AND key != ?")
+    .bind(`${prefixo.replace(/_/g, "\\_")}%`, chaveAtual)
     .run();
 }
 

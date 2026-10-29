@@ -18,13 +18,17 @@ function convite(clientId) {
 // Arte decorativa da página inicial. Qualquer versão serve: o Data Dragon
 // mantém as antigas para sempre, então isto não precisa acompanhar o patch.
 const VERSAO_ARTE = "16.19.1";
-// Elenco só da prévia visual da mensagem de rotação — não é a rotação real,
-// que vem da API da Riot na hora de postar.
-// Oito, não dez: é o que cabe numa linha só dentro da largura do embed.
-const CAMPEOES_VITRINE = [
-  "Ahri", "Jinx", "Darius", "Lux",
-  "Yasuo", "Thresh", "Ekko", "Leona",
-];
+// Build de exemplo da prévia do /build na inicial, usada só enquanto a coleta
+// ainda não juntou amostra para a build do dia de verdade.
+const BUILD_EXEMPLO = {
+  campeao: { nome: "Ahri", img: "Ahri" },
+  rota: "MIDDLE",
+  itens: [6655, 4645, 3157, 3020],
+};
+
+const DDRAGON = "https://ddragon.leagueoflegends.com";
+const NOMES_ROTA = { TOP: "Topo", JUNGLE: "Selva", MIDDLE: "Meio", BOTTOM: "Atirador", UTILITY: "Suporte" };
+const porcentagem = (taxa) => `${(taxa * 100).toFixed(1).replace(".", ",")}%`;
 
 // Brasas do fundo. Os valores são fixos e variados à mão em vez de
 // aleatórios: assim o resultado é o mesmo em toda visita e dá para ajustar
@@ -483,6 +487,43 @@ const ESTILO = `
   .previa-campeoes img { width: 38px; height: 38px; border: 1px solid var(--latao); background: #1e1f22; }
   .previa-rodape { color: #949ba4; font-size: .75rem; margin: 10px 0 0; }
 
+  .previa-comando { color: #949ba4; font-size: .78rem; margin: 0 0 6px; }
+  .previa-comando code { background: none; border: 0; padding: 0; color: #c9cdfb; }
+  .previa-rotulo { color: #b5bac1; font-size: .78rem; font-weight: 600; margin: 0 0 6px; }
+
+  /* ---------- builds ---------- */
+  .busca {
+    width: 100%; font: inherit; color: var(--texto); padding: 12px 14px; margin: 6px 0 18px;
+    border: 1px solid var(--linha); border-radius: 0; background: var(--fundo);
+  }
+  .busca:focus-visible { outline: 2px solid var(--latao); outline-offset: 2px; border-color: var(--latao); }
+  .grade-campeoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 10px; }
+  .grade-campeoes a {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    text-decoration: none; color: var(--texto-fraco); font-size: .74rem; text-align: center; line-height: 1.2;
+  }
+  .grade-campeoes a:hover { color: var(--latao-claro); }
+  .grade-campeoes img { width: 56px; height: 56px; border: 1px solid var(--latao-escuro); background: var(--fundo); }
+  .grade-campeoes a:hover img { border-color: var(--latao); }
+  .build-topo { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  .build-topo img { width: 72px; height: 72px; border: 2px solid var(--latao); flex: none; }
+  .build-topo h1 { margin: 0 0 4px; }
+  .build-topo p { margin: 0; }
+  .abas { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 4px; }
+  .abas a { text-decoration: none; }
+  .abas .tag.ok { background: color-mix(in srgb, var(--verde) 14%, transparent); }
+  .linha-itens { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+  .item { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 76px; text-align: center; font-size: .74rem; line-height: 1.2; color: var(--texto-fraco); }
+  .item img { width: 50px; height: 50px; border: 1px solid var(--latao); background: var(--fundo); }
+  .item.runa img { border-radius: 50%; border-color: var(--latao-escuro); background: var(--superficie); padding: 3px; }
+  .item.runa.chave img { width: 60px; height: 60px; border-color: var(--latao); }
+  .seta { align-self: center; margin-top: -18px; color: var(--latao); font-size: 1.1rem; }
+  .estat { font-size: .84rem; color: var(--texto-fraco); margin: 12px 0 0; }
+  .estat strong { color: var(--verde); }
+  .teclas { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-family: "Big Shoulders Display", sans-serif; font-weight: 800; font-size: 1.4rem; color: var(--latao-claro); }
+  .teclas span.tecla { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--latao); background: var(--fundo); clip-path: var(--degrau-p); }
+  .duas-colunas { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  main.conteudo .duas-colunas .cartao { margin: 0; }
   /* ---------- comandos ---------- */
   .comandos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
   .comando {
@@ -667,6 +708,7 @@ function layout(titulo, corpo, opcoes = {}) {
 <header class="topo">
   <a class="marca" href="/"><img src="/favicon.webp" alt=""> Ward</a>
   <div class="topo-dir">
+    <a class="topo-link" href="/build">Builds</a>
     <a class="topo-link" href="/dashboard">Painel</a>
     <button class="tema" type="button" id="alternar-tema" aria-label="Alternar tema claro e escuro">
       <span class="lua">${ICONE_LUA}</span><span class="sol">${ICONE_SOL}</span>
@@ -774,31 +816,26 @@ function rodape() {
 
 export function landing(clientId, vitrine) {
   const patch = vitrine?.patch || VERSAO_ARTE;
-  const rotacao = Array.isArray(vitrine?.campeoes) ? vitrine.campeoes : [];
   const noticias = Array.isArray(vitrine?.noticias) ? vitrine.noticias : [];
 
-  // A rotação muda toda semana, então uma lista que não muda há mais de dez
-  // dias não pode ser anunciada como "a desta semana" — o bloco some em vez
-  // de mentir. Dez, e não sete, para não acusar atraso por um dia de folga
-  // da Riot.
-  //
-  // Sem carimbo o bloco APARECE: ausência de registro não é prova de que
-  // está velho, e a lista exibida é a que a API oficial reporta.
-  const DIAS_VALIDADE_ROTACAO = 10;
-  const rotacaoAtualizada =
-    rotacao.length > 0 &&
-    (typeof vitrine?.rotacaoDias !== "number" || vitrine.rotacaoDias <= DIAS_VALIDADE_ROTACAO);
+  // A build do dia vem pronta do cron (ver atualizarVitrineBuild). Sem ela
+  // — coleta recém-ligada —, a prévia usa um exemplo fixo e o bloco "ao
+  // vivo" simplesmente não aparece, em vez de fingir que é dado real.
+  const buildReal = vitrine?.build?.itens?.length ? vitrine.build : null;
+  const build = buildReal ?? BUILD_EXEMPLO;
+  const versaoIcones = buildReal ? patch : VERSAO_ARTE;
 
-  const iconeCampeao = (c, tamanho) =>
-    `<img src="https://ddragon.leagueoflegends.com/cdn/${escapar(patch)}/img/champion/${escapar(c.img)}.png"` +
-    ` alt="${escapar(c.nome ?? "")}" title="${escapar(c.nome ?? "")}" width="${tamanho}" height="${tamanho}" loading="lazy">`;
+  const iconeCampeao = (img, nome, tamanho) =>
+    `<img src="${DDRAGON}/cdn/${escapar(versaoIcones)}/img/champion/${escapar(img)}.png"` +
+    ` alt="${escapar(nome ?? "")}" title="${escapar(nome ?? "")}" width="${tamanho}" height="${tamanho}" loading="lazy">`;
+  const iconeItem = (id, tamanho) =>
+    `<img src="${DDRAGON}/cdn/${escapar(versaoIcones)}/img/item/${Number(id)}.png" alt="" width="${tamanho}" height="${tamanho}" loading="lazy">`;
 
-  const campeoes = rotacao.length
-    ? rotacao.slice(0, 10).map((c) => iconeCampeao(c, 38)).join("")
-    : CAMPEOES_VITRINE.map(
-        (nome) =>
-          `<img src="https://ddragon.leagueoflegends.com/cdn/${VERSAO_ARTE}/img/champion/${nome}.png" alt="" width="38" height="38" loading="lazy">`
-      ).join("");
+  const itensPrevia = build.itens.map((id) => iconeItem(id, 38)).join("");
+  const tituloPrevia = `${build.campeao.nome}${build.rota ? ` · ${NOMES_ROTA[build.rota] ?? ""}` : ""} · Ranqueada Solo/Duo`;
+  const rodapePrevia = buildReal
+    ? `${porcentagem(buildReal.taxa)} de vitória em ${buildReal.jogos.toLocaleString("pt-BR")} partidas de Grão-Mestre+ no BR.`
+    : "Itens, runas, feitiços e habilidades de quem mais ganha no BR.";
 
   // Cada função mostra o dado de verdade que o bot acabou de ver. É a
   // diferença entre dizer "aviso patch novo" e provar que o patch no ar
@@ -834,7 +871,8 @@ export function landing(clientId, vitrine) {
         <h1>Seu servidor <br class="so-largo">nunca mais perde <br class="so-largo">o patch novo</h1>
         <div class="ornamento"><i></i></div>
         <p class="subtitulo">O Ward vigia as publicações da Riot e avisa no canal que
-        você escolher: patch novo, notícias oficiais e a rotação grátis da semana.</p>
+        você escolher: patch novo e notícias oficiais. E com <code>/build</code>, mostra
+        a build que mais ganha para cada campeão no meta atual.</p>
         <div class="acoes">
           <a class="botao destaque" href="${convite(clientId)}">Adicionar ao Discord</a>
           <a class="botao vazado" href="#funcoes">Ver o que ele faz</a>
@@ -845,7 +883,7 @@ export function landing(clientId, vitrine) {
     <section class="faixa escura" id="funcoes">
       <div class="limite">
         <div class="titulo-secao revelar">
-          <h2>Três avisos, zero esforço</h2>
+          <h2>Três funções, zero esforço</h2>
           <div class="ornamento"><i></i></div>
         </div>
         <div class="funcoes escalonar">
@@ -875,13 +913,19 @@ export function landing(clientId, vitrine) {
           )}
           ${funcao(
             "03",
-            "Rotação semanal",
-            `A lista de campeões grátis da semana numa mensagem enxuta, com o
-             ícone de cada campeão. Na hora que muda ou num horário fixo do dia.`,
+            "Build do meta",
+            `Digite <code>/build</code> e o campeão: itens, runas, feitiços e
+             ordem de habilidades de quem mais ganha nas partidas de
+             Grão-Mestre+ do BR, na ranqueada ou no ARAM. Atualiza sozinho
+             conforme o meta muda.`,
             aoVivo(
-              "Grátis esta semana",
-              rotacaoAtualizada
-                ? `<div class="campeoes-vivo">${rotacao.slice(0, 12).map((c) => iconeCampeao(c, 34)).join("")}</div>`
+              `Build do dia · ${buildReal ? escapar(buildReal.campeao.nome) : ""}`,
+              buildReal
+                ? `<div class="campeoes-vivo"><a href="/build/${encodeURIComponent(buildReal.campeao.img)}">${iconeCampeao(
+                    buildReal.campeao.img,
+                    buildReal.campeao.nome,
+                    34
+                  )}</a>${buildReal.itens.map((id) => iconeItem(id, 34)).join("")}</div>`
                 : ""
             )
           )}
@@ -904,10 +948,12 @@ export function landing(clientId, vitrine) {
             <img class="previa-avatar" src="/favicon.webp" alt="" width="38" height="38">
             <div>
               <p class="previa-nome">Ward <span class="previa-tag">BOT</span><span class="previa-hora">hoje às 09:00</span></p>
+              <p class="previa-comando">usou <code>/build ${escapar(build.campeao.nome)}</code></p>
               <div class="previa-embed">
-                <strong>Rotação grátis desta semana</strong>
-                <div class="previa-campeoes">${campeoes}</div>
-                <p class="previa-rodape">Disponíveis para todo mundo até a próxima terça.</p>
+                <strong>${escapar(tituloPrevia)}</strong>
+                <p class="previa-rotulo">Build principal + botas</p>
+                <div class="previa-campeoes">${itensPrevia}</div>
+                <p class="previa-rodape">${escapar(rodapePrevia)}</p>
               </div>
             </div>
           </div>
@@ -923,7 +969,7 @@ export function landing(clientId, vitrine) {
         </div>
         <div class="comandos escalonar">
           <div class="comando"><code>/patch</code><span>o patch atual</span></div>
-          <div class="comando"><code>/rotacao</code><span>os campeões grátis</span></div>
+          <div class="comando"><code>/build</code><span>a build do meta de um campeão</span></div>
           <div class="comando"><code>/dashboard</code><span>o link de configuração</span></div>
         </div>
       </div>
@@ -935,10 +981,10 @@ export function landing(clientId, vitrine) {
         <div class="ornamento"><i></i></div>
         <p class="aviso" style="max-width:520px;margin:0 auto 26px">Adicione o bot,
         entre no painel com sua conta do Discord e escolha o canal de cada aviso.
-        Dá para postar na hora ou marcar um horário fixo diário.</p>
+        O <code>/build</code> funciona assim que o bot entra, sem configurar nada.</p>
         <div class="acoes">
           <a class="botao destaque" href="${convite(clientId)}">Adicionar ao Discord</a>
-          <a class="botao vazado" href="/dashboard">Abrir o painel</a>
+          <a class="botao vazado" href="/build">Ver as builds</a>
         </div>
       </div>
     </section>
@@ -988,12 +1034,10 @@ export function listaServidores(servidores, clientId, ehDono) {
 
 const MENSAGENS_STATUS = {
   patch: "✓ Patch postado no canal!",
-  rotacao: "✓ Rotação postada no canal!",
   sem_canal: "Escolhe um canal antes de postar.",
   erro: "Não consegui postar agora — tenta de novo em instantes.",
   noticia: "✓ Notícia postada no canal!",
   sem_noticia: "Escolhe uma notícia da lista antes de postar.",
-  chave_riot: "A Riot recusou a chave do bot, então a rotação está indisponível. Quem cuida do Ward precisa dar uma olhada.",
   sem_permissao: "Não consegui escrever nesse canal — confere se o Ward tem permissão de ver o canal e enviar mensagens nele.",
 };
 
@@ -1007,8 +1051,12 @@ function explicarFalha(mensagem) {
   }
   if (/-> 404\b/.test(texto)) return "o canal escolhido não existe mais — é só escolher outro aqui embaixo";
   if (/-> 400\b/.test(texto)) return "o Discord recusou o conteúdo da mensagem";
-  if (/apikey|RIOT_API_KEY|-> 401\b/i.test(texto)) {
-    return "a chave da Riot está vencida — quem cuida do Ward precisa renovar";
+  if (/RIOT_API_KEY/.test(texto) || /Riot API.*-> (401|403)\b/.test(texto)) {
+    return "a Riot recusou a chave da API — confira o RIOT_API_KEY do Worker";
+  }
+  if (/Riot API.*-> 429\b/.test(texto)) return "a Riot pediu para o bot ir mais devagar (limite da chave)";
+  if (/-> 401\b/.test(texto)) {
+    return "o Discord recusou o token do bot — o DISCORD_TOKEN do Worker precisa ser trocado por um válido";
   }
   if (/-> 429\b/.test(texto)) return "o Discord pediu para o bot ir mais devagar";
   return "o envio falhou";
@@ -1033,13 +1081,12 @@ function quandoFalhou(quando) {
   });
 }
 
-// As três funções de um servidor que estão com erro gravado, na ordem em que
+// Os avisos de um servidor que estão com erro gravado, na ordem em que
 // aparecem no painel. Devolve [] quando está tudo certo.
 function falhasDe(config) {
   return [
     ["Patch", config?.patch_last_error, config?.patch_last_error_at],
     ["Notícias", config?.news_last_error, config?.news_last_error_at],
-    ["Rotação", config?.rotation_last_error, config?.rotation_last_error_at],
   ].filter(([, erro]) => erro);
 }
 
@@ -1053,7 +1100,6 @@ const STATUS_DE_ATENCAO = new Set([
   "sem_canal",
   "sem_noticia",
   "erro",
-  "chave_riot",
   "sem_permissao",
 ]);
 
@@ -1066,7 +1112,7 @@ export function paginaPrivacidade() {
   return `
     <a class="voltar" href="/">← início</a>
     <h1>Política de privacidade</h1>
-    <p class="aviso">Atualizada em 30 de setembro de 2026.</p>
+    <p class="aviso">Atualizada em 29 de outubro de 2026.</p>
 
     <div class="cartao">
       <h2>O que o Ward guarda</h2>
@@ -1076,8 +1122,8 @@ export function paginaPrivacidade() {
         <li>o identificador do canal escolhido para cada aviso;</li>
         <li>se cada aviso está ligado ou desligado, e o horário diário escolhido;</li>
         <li>a data do último aviso enviado, pra não repetir no mesmo dia;</li>
-        <li>a última versão de patch, a última rotação e quais notícias já
-        foram anunciadas, para não repetir;</li>
+        <li>a última versão de patch e quais notícias já foram anunciadas,
+        para não repetir;</li>
         <li>quantas vezes cada comando foi usado em cada servidor — só o
         número total, sem registrar quem executou.</li>
       </ul>
@@ -1088,7 +1134,8 @@ export function paginaPrivacidade() {
       <ul>
         <li>não lê nem armazena mensagens de ninguém;</li>
         <li>não guarda e-mail, telefone, endereço nem dados de pagamento;</li>
-        <li>não guarda conta da Riot, nome de invocador nem histórico de partidas;</li>
+        <li>não guarda conta da Riot, nome de invocador nem histórico de
+        partidas de ninguém (ver "Estatísticas de build" abaixo);</li>
         <li>não usa nada disso para publicidade e não vende dado nenhum.</li>
       </ul>
     </div>
@@ -1104,10 +1151,22 @@ export function paginaPrivacidade() {
     </div>
 
     <div class="cartao">
+      <h2>Estatísticas de build</h2>
+      <p>Para o comando <code>/build</code>, o Ward lê pela API oficial da Riot
+      partidas públicas recentes dos jogadores do topo do ranqueado brasileiro
+      (Desafiante e Grão-Mestre). De cada partida guarda só o anônimo: campeão,
+      rota, se venceu, itens, runas, feitiços e ordem de habilidades — sem nome,
+      conta ou identificador do jogador. Esses dados são apagados quando deixam
+      de ser do patch atual ou do anterior. A lista de identificadores dos
+      jogadores do topo (fornecida pela própria Riot) fica guardada por até um
+      dia, só para saber de quem buscar partidas.</p>
+    </div>
+
+    <div class="cartao">
       <h2>Serviços usados</h2>
       <ul>
         <li><strong>Discord</strong>: para entrar no painel e enviar as mensagens;</li>
-        <li><strong>Riot Games (Data Dragon e API)</strong>: versão do jogo e rotação de campeões grátis;</li>
+        <li><strong>Riot Games (Data Dragon e API)</strong>: versão do jogo, ícones e partidas para as estatísticas de build;</li>
         <li><strong>leagueoflegends.com</strong>: resumo das notas do patch e as notícias oficiais em português;</li>
         <li><strong>Cloudflare</strong>: hospedagem, banco de dados e tradução do resumo do patch.</li>
       </ul>
@@ -1128,13 +1187,15 @@ export function paginaTermos() {
   return `
     <a class="voltar" href="/">← início</a>
     <h1>Termos de uso</h1>
-    <p class="aviso">Atualizados em 30 de setembro de 2026.</p>
+    <p class="aviso">Atualizados em 29 de outubro de 2026.</p>
 
     <div class="cartao">
       <h2>O que é</h2>
       <p>O Ward é um bot gratuito e sem fins lucrativos para servidores do
-      Discord. Ele avisa quando sai um patch novo de League of Legends e
-      mostra a rotação semanal de campeões grátis.</p>
+      Discord. Ele avisa quando sai um patch novo de League of Legends, posta
+      as notícias oficiais e mostra a build mais vitoriosa de cada campeão.
+      As builds são estatística de partidas reais e servem como sugestão, não
+      como garantia de vitória.</p>
     </div>
 
     <div class="cartao">
@@ -1169,44 +1230,29 @@ export function paginaTermos() {
 export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
   const configPorGuild = new Map(configs.map((c) => [c.guild_id, c]));
 
-  // Saúde da fonte da rotação. É o único aviso que não pertence a um servidor
-  // específico: quando a Riot recusa a chave, TODOS param de receber, e antes
-  // disso a falha não aparecia em lugar nenhum.
-  const diasDesde = (iso) => {
-    if (!iso) return null;
-    const t = new Date(iso).getTime();
-    return isNaN(t) ? null : Math.floor((Date.now() - t) / 86400000);
-  };
-  const diasSemRotacao = diasDesde(estadoGlobal.rotacaoEm);
-  const diasSemMudar = diasDesde(estadoGlobal.rotacaoMudouEm);
-
-  let painelRotacao = "";
-  if (estadoGlobal.rotacaoErro) {
-    painelRotacao = `<div class="cartao">
-         <h2>Rotação parada</h2>
-         <p class="banner atencao">${escapar(explicarFalha(estadoGlobal.rotacaoErro))}</p>
-         <p class="fraco">Última tentativa: ${escapar(quandoFalhou(estadoGlobal.rotacaoErroEm) || "desconhecida")}.
-         ${
-           diasSemRotacao === null
-             ? "Nunca houve uma busca bem-sucedida desde que o registro existe."
-             : `A última lista boa tem ${diasSemRotacao} dia${diasSemRotacao === 1 ? "" : "s"}.`
-         }</p>
-         <p class="fraco">Enquanto isso, a rotação não é postada em nenhum servidor e some
-         da página inicial — ela não é mostrada velha como se fosse a da semana.</p>
-       </div>`;
-  } else if (diasSemMudar !== null && diasSemMudar >= 9) {
-    // Busca funcionando e conteúdo parado: é o caso silencioso, o que não
-    // gera erro nenhum. A rotação deveria mudar toda semana, então passar de
-    // nove dias sem mexer já é anomalia que merece aparecer aqui.
-    painelRotacao = `<div class="cartao">
-         <h2>Rotação sem mudar</h2>
-         <p class="banner atencao">A lista é a mesma há ${diasSemMudar} dias.</p>
-         <p class="fraco">A busca na Riot está funcionando — o que não muda é a resposta
-         dela. Como a rotação deveria girar toda semana, ou a Riot congelou a rotação,
-         ou o endpoint oficial parou de acompanhar o jogo. O bot não tem como distinguir
-         os dois casos sozinho: é preciso comparar com o cliente do jogo.</p>
-       </div>`;
-  }
+  // Saúde da coleta do /build. É o único estado que não pertence a um
+  // servidor específico: se a Riot recusar a chave, a build de todo mundo
+  // para de se atualizar — e isso tem que aparecer aqui, não só no log.
+  const coletado = Array.isArray(estadoGlobal.coletado) ? estadoGlobal.coletado : [];
+  const linhasColeta = coletado
+    .map(
+      (c) =>
+        `<p>${escapar(c.fila === 450 ? "ARAM" : "Ranqueada")} · patch ${Math.floor(c.patch / 100) + 10}.${c.patch % 100}:
+         <strong>${Number(c.partidas).toLocaleString("pt-BR")}</strong> partidas</p>`
+    )
+    .join("");
+  const painelColeta = `<div class="cartao">
+       <h2>Coleta do /build</h2>
+       ${
+         estadoGlobal.coletaErro
+           ? `<p class="banner atencao">${escapar(explicarFalha(estadoGlobal.coletaErro))}</p>
+              <p class="fraco">Falhou em ${escapar(quandoFalhou(estadoGlobal.coletaErroEm) || "?")}: ${escapar(estadoGlobal.coletaErro)}</p>`
+           : ""
+       }
+       <p class="fraco">Última rodada bem-sucedida: ${escapar(quandoFalhou(estadoGlobal.coletaOkEm) || "nenhuma ainda")}.
+       Emojis de itens/runas: ${estadoGlobal.emojisCompletos ? "completos" : "subindo aos poucos"}.</p>
+       ${linhasColeta || `<p class="fraco">Nenhuma partida coletada ainda.</p>`}
+     </div>`;
 
   const usoPorGuild = new Map();
   for (const u of uso) {
@@ -1217,7 +1263,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
   const membros = servidores.reduce((soma, g) => soma + (g.approximate_member_count ?? 0), 0);
   const ativos = servidores.filter((g) => {
     const c = configPorGuild.get(g.id);
-    return c && (c.patch_enabled || c.rotation_enabled);
+    return c && (c.patch_enabled || c.news_enabled);
   }).length;
   const totalComandos = uso.reduce((soma, u) => soma + u.total, 0);
   const comFalha = servidores.filter((g) => falhasDe(configPorGuild.get(g.id)).length > 0).length;
@@ -1269,7 +1315,6 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
         ${falhas}
         <p>Patch: ${aviso(c?.patch_enabled, c?.patch_channel_id, null)}</p>
         <p>Notícias: ${aviso(c?.news_enabled, c?.news_channel_id, null)}</p>
-        <p>Rotação: ${aviso(c?.rotation_enabled, c?.rotation_channel_id, c?.rotation_daily_hour)}</p>
         <p>${listaComandos}</p>
       </div>`;
     })
@@ -1295,7 +1340,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
       ${tile(totalComandos, "comandos usados")}
       ${tile(comFalha, "com falha no envio")}
     </div>
-    ${painelRotacao}
+    ${painelColeta}
     ${cartoes}
     ${bloqueSaiu}
     <p class="aviso">Esta página conta uso por servidor. Ela não mostra (nem o
@@ -1362,16 +1407,6 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
       )
       .join("");
 
-  const opcoesHorario = (selecionado) =>
-    [`<option value="">Desligado (só avisa quando muda)</option>`]
-      .concat(
-        Array.from({ length: 24 }, (_, h) => {
-          const rotulo = `${String(h).padStart(2, "0")}:00`;
-          return `<option value="${h}"${h === selecionado ? " selected" : ""}>Todo dia às ${rotulo}</option>`;
-        })
-      )
-      .join("");
-
   const bannerSalvo = salvo ? `<p class="banner">✓ Salvo!</p>` : "";
   const bannerStatus =
     status && MENSAGENS_STATUS[status]
@@ -1407,17 +1442,164 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
         ${previaNoticias(servidor, noticias)}
       </div>
       <div class="cartao">
-        <h2>Rotação semanal</h2>
-        ${avisoDeFalha(config.rotation_last_error, config.rotation_last_error_at)}
-        <label class="interruptor">
-          <input type="checkbox" name="rotation_enabled" ${config.rotation_enabled ? "checked" : ""}>
-          Avisar a rotação semanal de campeões grátis
-        </label>
-        <label class="campo"><span>Canal</span><select name="rotation_channel_id">${opcoesCanais(config.rotation_channel_id)}</select></label>
-        <label class="campo"><span>Horário fixo diário</span><select name="rotation_daily_hour">${opcoesHorario(config.rotation_daily_hour)}</select></label>
-        <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-rotacao">Postar rotação agora</button>
+        <h2>Build do meta</h2>
+        <p>Não precisa configurar: qualquer pessoa do servidor pode usar
+        <code>/build</code> em qualquer canal onde o Ward consiga responder.</p>
+        <p class="fraco">Também dá para ver pelo site: <a href="/build">lista de builds</a>.</p>
       </div>
       <button class="botao" type="submit">Salvar</button>
     </form>
+  `;
+}
+
+// Lista pública de campeões, cada um levando à sua build. O filtro é só no
+// navegador: a lista inteira (uns 170) já vem na página.
+export function paginaListaBuilds(campeoes, versao) {
+  const ordenados = campeoes.slice().sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  const itens = ordenados
+    .map(
+      (c) => `<a href="/build/${encodeURIComponent(c.arquivoImagem)}" data-nome="${escapar(c.nome.toLowerCase())}">
+        <img src="${DDRAGON}/cdn/${escapar(versao)}/img/champion/${escapar(c.arquivoImagem)}.png" alt="" width="56" height="56" loading="lazy">
+        ${escapar(c.nome)}</a>`
+    )
+    .join("");
+
+  return `
+    <a class="voltar" href="/">← início</a>
+    <h1>Builds do meta</h1>
+    <p class="aviso">A build que mais ganha de cada campeão, tirada das partidas de
+    Grão-Mestre+ do servidor brasileiro e atualizada sozinha conforme o meta muda.
+    No Discord é só usar <code>/build</code>.</p>
+    <input class="busca" id="busca" type="search" placeholder="Buscar campeão..." aria-label="Buscar campeão" autocomplete="off">
+    <div class="grade-campeoes" id="grade">${itens}</div>
+    <script>
+      document.getElementById("busca").addEventListener("input", function (e) {
+        var alvo = e.target.value.trim().toLowerCase();
+        document.querySelectorAll("#grade a").forEach(function (a) {
+          a.style.display = a.dataset.nome.indexOf(alvo) >= 0 ? "" : "none";
+        });
+      });
+    </script>
+  `;
+}
+
+// A build de um campeão em página, com os ícones grandes. É para onde o
+// título do embed do /build aponta.
+export function paginaBuild({ campeao, build, dados, versao, fila }) {
+  const img = (url, alt) =>
+    `<img src="${escapar(url)}" alt="${escapar(alt)}" title="${escapar(alt)}" width="50" height="50" loading="lazy">`;
+  const nomeItem = (id) => dados.itens[id]?.nome ?? `Item ${id}`;
+  const item = (id, rodape = "") =>
+    `<div class="item">${img(`${DDRAGON}/cdn/${versao}/img/item/${Number(id)}.png`, nomeItem(id))}<span>${escapar(
+      nomeItem(id)
+    )}${rodape}</span></div>`;
+  const runa = (id, chave = false) => {
+    const r = dados.runas[id];
+    return `<div class="item runa${chave ? " chave" : ""}">${img(`${DDRAGON}/cdn/img/${r?.icone ?? ""}`, r?.nome ?? "")}<span>${escapar(
+      r?.nome ?? ""
+    )}</span></div>`;
+  };
+  const estat = (op) =>
+    op ? `<p class="estat"><strong>${porcentagem(op.taxa)}</strong> de vitória em ${op.jogos.toLocaleString("pt-BR")} partidas</p>` : "";
+
+  const linkPara = (modo, rota) =>
+    `/build/${encodeURIComponent(campeao.arquivoImagem)}?modo=${modo}${rota ? `&rota=${rota}` : ""}`;
+  const abaModo = (modo, nome) =>
+    `<a href="${linkPara(modo)}"><span class="tag${fila === modo ? " ok" : ""}">${nome}</span></a>`;
+  const abasRota = (build?.rotas ?? [])
+    .filter((r) => r.rota && (r.jogos >= 20 || r.rota === build.rota))
+    .map(
+      (r) =>
+        `<a href="${linkPara(fila, r.rota)}"><span class="tag${r.rota === build.rota ? " ok" : ""}">${escapar(
+          NOMES_ROTA[r.rota] ?? r.rota
+        )}</span></a>`
+    )
+    .join("");
+
+  const topo = `
+    <a class="voltar" href="/build">← todas as builds</a>
+    <div class="build-topo">
+      <img src="${DDRAGON}/cdn/${escapar(versao)}/img/champion/${escapar(campeao.arquivoImagem)}.png" alt="" width="72" height="72">
+      <div>
+        <h1>${escapar(campeao.nome)}</h1>
+        <p class="fraco">${
+          build?.jogos
+            ? `${porcentagem(build.taxa)} de vitória em ${build.jogos.toLocaleString("pt-BR")} partidas de Grão-Mestre+ no BR · patch ${build.patches
+                .map((n) => `${Math.floor(n / 100) + 10}.${n % 100}`)
+                .join(" e ")}`
+            : "Build do meta"
+        }</p>
+      </div>
+    </div>
+    <div class="abas">${abaModo(420, "Ranqueada Solo/Duo")}${abaModo(450, "ARAM")}</div>
+    ${abasRota ? `<div class="abas">${abasRota}</div>` : ""}
+  `;
+
+  if (!build?.jogos) {
+    return `${topo}
+      <div class="cartao"><p>Ainda estou juntando partidas de ${escapar(campeao.nome)} nesse modo.
+      A coleta roda sozinha o tempo todo — volta daqui a pouco.</p></div>`;
+  }
+
+  const contagem = new Map();
+  for (const id of build.inicio?.chave.split(",").map(Number) ?? []) contagem.set(id, (contagem.get(id) ?? 0) + 1);
+  const inicio = [...contagem.entries()].map(([id, n]) => item(id, n > 1 ? ` ×${n}` : "")).join("");
+
+  const nucleo = build.nucleo
+    ? build.nucleo.itens.map((id) => item(id)).join(`<span class="seta" aria-hidden="true">➜</span>`)
+    : "";
+  const extras = build.extras.map((e) => item(e.id, `<br>${porcentagem(e.taxa)}`)).join("");
+
+  const r = build.runas;
+  const runas = r
+    ? `<p class="fraco">${escapar(dados.runas[r.primario]?.nome ?? "")}</p>
+       <div class="linha-itens">${r.runasPrimarias.map((id, i) => runa(id, i === 0)).join("")}</div>
+       <p class="fraco" style="margin-top:14px">${escapar(dados.runas[r.secundario]?.nome ?? "")}</p>
+       <div class="linha-itens">${r.runasSecundarias.map((id) => runa(id)).join("")}</div>
+       <p class="fraco" style="margin-top:14px">Fragmentos: ${r.fragmentos.map(escapar).join(" · ")}</p>
+       ${estat(r)}`
+    : "";
+
+  const feiticos = build.feiticos
+    ? build.feiticos.chave
+        .split(",")
+        .map((key) => {
+          const f = dados.feiticos[key];
+          return `<div class="item">${img(`${DDRAGON}/cdn/${versao}/img/spell/${f?.imagem ?? ""}`, f?.nome ?? "")}<span>${escapar(
+            f?.nome ?? key
+          )}</span></div>`;
+        })
+        .join("")
+    : "";
+
+  const h = build.habilidades;
+  const habilidades = h
+    ? `<p class="fraco">Maximizar</p>
+       <div class="teclas">${h.ordem.split(">").map((t) => `<span class="tecla">${t}</span>`).join("›")}</div>
+       ${
+         h.primeiras
+           ? `<p class="fraco" style="margin-top:12px">Primeiros níveis</p>
+              <div class="teclas">${h.primeiras.split("").map((t) => `<span class="tecla">${t}</span>`).join("")}</div>`
+           : ""
+       }`
+    : "";
+
+  const cartao = (titulo, corpo) => (corpo ? `<div class="cartao"><h2>${titulo}</h2>${corpo}</div>` : "");
+
+  return `${topo}
+    ${cartao("Build principal", nucleo ? `<div class="linha-itens">${nucleo}</div>${estat(build.nucleo)}` : "")}
+    <div class="duas-colunas">
+      ${cartao("Itens iniciais", inicio ? `<div class="linha-itens">${inicio}</div>${estat(build.inicio)}` : "")}
+      ${cartao("Botas", build.botas ? `<div class="linha-itens">${item(build.botas.chave)}</div>${estat(build.botas)}` : "")}
+    </div>
+    ${cartao("Do 4º item em diante", extras ? `<div class="linha-itens">${extras}</div>` : "")}
+    ${cartao("Runas", runas)}
+    <div class="duas-colunas">
+      ${cartao("Feitiços", feiticos ? `<div class="linha-itens">${feiticos}</div>${estat(build.feiticos)}` : "")}
+      ${cartao("Habilidades", habilidades)}
+    </div>
+    <p class="aviso">Estatística de partidas reais, recalculada a cada consulta conforme a coleta
+    avança. É sugestão, não garantia de vitória.</p>
+    ${rodape()}
   `;
 }
