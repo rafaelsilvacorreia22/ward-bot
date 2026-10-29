@@ -8,8 +8,8 @@ comando de build:
 - **Notícias oficiais**: CBLOL e outros esports, skins, atualizações do jogo
   e comunicados — direto do site da Riot em português.
 - **`/build <campeão> [modo] [rota]`**: a build que mais ganha no meta atual
-  (itens iniciais, build principal, botas, opções de 4º item em diante,
-  runas, feitiços e ordem de habilidades), com o ícone de cada item. Também
+  (itens iniciais, build principal, botas, opções de 4º, 5º e 6º item,
+  runas, feitiços e ordem de habilidades), com dados do OP.GG, com o ícone de cada item. Também
   em página no site: `/build` e `/build/<campeão>`.
 
 Comandos: `/patch`, `/build`, `/dashboard` (manda o link de configuração
@@ -19,30 +19,29 @@ A **rotação semanal** existiu até 10/2026 e saiu: o endpoint oficial da Riot
 (`champion-rotations`) congelou e passou a devolver a mesma lista por
 semanas, então o bot anunciava rotação velha como se fosse nova.
 
-## Como o /build se mantém no meta
+## De onde vêm as builds
 
-Nenhum site de builds (op.gg, u.gg, Porofessor) tem API pública, e raspar
-HTML deles quebra a cada mudança de layout. Então o Ward monta as próprias
-estatísticas com a chave da Riot (`src/builds.js`):
+Do **OP.GG**, pela API aberta que eles publicam para integrações
+(`https://mcp-api.op.gg/mcp`, projeto https://github.com/opgginc/opgg-mcp,
+sem chave). São as estatísticas agregadas deles — dezenas a centenas de
+milhares de partidas por campeão no patch atual —, por modo (ranqueada
+solo/duo, flex, ARAM) e rota. Ver `src/builds.js`.
 
-1. A cada 2 minutos (cron próprio), pega o histórico recente de um jogador
-   Desafiante/Grão-Mestre do BR (lista renovada 1×/dia) — 2 de cada 3 vezes
-   na ranqueada solo/duo, 1 no ARAM — e lê algumas partidas novas (match-v5 +
-   timeline). ~3 partidas por rodada, ~2 mil por dia, folgado no limite da
-   chave e no plano free do Worker.
-2. De cada participante guarda só o anônimo em `build_amostra`: campeão,
-   rota, vitória, itens finais, botas, itens iniciais, runas, feitiços e
-   ordem de habilidades. Fica só o patch atual e o anterior (faxina diária).
-3. No `/build`, agrega na hora: entre as opções usadas em pelo menos 4% das
-   partidas, escolhe a de maior vitória ajustada pelo tamanho da amostra
-   (limite inferior de Wilson). Patch novo com menos de 60 partidas usa o
-   anterior junto.
+- Cada build buscada fica 6 horas em cache no D1 (`build_cache`); se o OP.GG
+  cair, a última guardada continua valendo. A rota principal de cada
+  campeão também fica guardada, para o `/build` sem rota não precisar de
+  duas consultas.
+- A resposta da API vem num formato próprio (não é JSON) — `lerFormatoOpgg`
+  transforma em objetos.
+- Tentativas anteriores, para não repetir: (1) coletar partidas pela API da
+  Riot — no plano free do Worker saem só alguns milhares por dia, e cada
+  campeão ficava com 1 ou 2 jogos; (2) u.gg, Porofessor, Mobalytics e
+  MetaSrc bloqueiam acesso automatizado (tela anti-robô / 403).
 
 Os ícones viram **emojis do aplicativo** (itens `i<id>`, runas `r<id>`,
-feitiços `s<key>`), subidos aos poucos pelo próprio cron da coleta — item
-novo de patch novo aparece sozinho. Os slash commands também se registram
-sozinhos quando a lista muda (`comandos_registrados` no `bot_state`).
-
+feitiços `s<key>`), subidos aos poucos pelo cron de 2 minutos — item novo de
+patch novo aparece sozinho. Os slash commands também se registram sozinhos
+quando a lista muda (`comandos_registrados` no `bot_state`).
 ## Por que não tem contagem de jogadores nem elo/partida ao vivo
 
 Diferente dos bots de Steam (ARC Raiders, WARDOGS, HELLDIVERS 2), o LoL usa a
@@ -54,10 +53,8 @@ chave pessoal ("Personal API Key") funciona, mas **expira sozinha a cada
 
 - **Alerta de patch**: não precisa de chave nenhuma (Data Dragon é público).
 - **Notícias**: também sem chave — vêm do site oficial em pt-BR.
-- **/build**: precisa de chave da Riot com acesso a league-v4 e match-v5 (a
-  chave de produto/"Personal API Key" aprovada não expira). Se a chave
-  falhar, a coleta para e o erro aparece no `/admin/uso`; o `/build` segue
-  respondendo com o que já foi coletado.
+- **/build**: sem chave — usa a API aberta do OP.GG (ver acima). Se ela
+  falhar, o erro aparece no `/admin/uso` e o `/build` responde com o cache.
 
 Uma pegadinha descoberta na marra: a numeração pública do patch não é a mesma
 do Data Dragon (o "16.19" de lá é o "26.19" do site), e isso não está
@@ -68,11 +65,11 @@ documentado em lugar nenhum — ver `urlNotasPatch` em `src/riot.js`.
 Um único Cloudflare Worker + banco D1, sem framework, sem build:
 
 ```
-src/index.js      # rotas HTTP + crons (patch / notícias; coleta do /build)
+src/index.js      # rotas HTTP + crons (patch / notícias; emojis do /build)
 src/discord.js    # verificação de assinatura + chamadas REST da Discord
 src/oauth.js      # "Entrar com Discord" do dashboard (sessão em cookie assinado)
 src/riot.js       # versão do jogo e roster de campeões (Data Dragon)
-src/builds.js     # coleta de partidas (Riot API) e agregação do /build
+src/builds.js     # builds do OP.GG (com cache) + nomes/ícones em pt-BR
 src/noticias.js   # notícias oficiais do site da Riot em pt-BR
 src/traducao.js   # tradução do resumo do patch (Workers AI, com reservas)
 src/comandos.js   # /patch, /build, /dashboard
@@ -97,8 +94,7 @@ Rotas de administração (protegidas pelo `SETUP_KEY`): `/admin/uso` mostra em
 quais servidores o bot está e quanto cada função é usada, `/admin/checar`
 força uma verificação (exige `?servidor=<id>`, pra um teste nunca postar em
 todos os servidores de uma vez) e `/admin/sincronizar` marca tudo como já
-anunciado sem postar nada. `/admin/coletar` roda uma rodada da coleta do
-`/build` na hora (bom pra testar a chave da Riot).
+anunciado sem postar nada.
 
 ## Colocar no ar (passo a passo)
 
@@ -132,7 +128,7 @@ npm run banco
 E aplique as migrações, em ordem (`migracoes/0001...` até a última):
 
 ```bash
-npx wrangler d1 execute ward-bot --remote --file=migracoes/0008_builds.sql
+npx wrangler d1 execute ward-bot --remote --file=migracoes/0009_builds_opgg.sql
 ```
 
 ### 3. Configurar os segredos do Worker
@@ -148,7 +144,7 @@ Cloudflare (ou `npx wrangler secret put NOME`, um de cada vez):
 | `DISCORD_CLIENT_SECRET` | Client Secret (aba OAuth2) |
 | `SESSION_SECRET` | Uma string aleatória grande (ex: gerada com `openssl rand -hex 32`) — assina o cookie de login |
 | `SETUP_KEY` | Uma senha inventada por você — protege as rotas `/registrar-comandos` e `/admin/checar` |
-| `RIOT_API_KEY` | Chave da Riot (https://developer.riotgames.com/) para o `/build`. Use a chave de produto aprovada — a de desenvolvimento expira a cada 24h |
+| `RIOT_API_KEY` | Opcional, não usada hoje (o `/build` vem do OP.GG) |
 
 ### 4. Deploy
 
@@ -197,7 +193,7 @@ interações em `wrangler dev` local — dá pra testar as rotas do dashboard
 | Sintoma | Causa provável |
 |---|---|
 | `/patch` ou `/build` não respondem nada | Comando ainda não propagou (espera até 1h após registrar) ou `DISCORD_PUBLIC_KEY` errada |
-| `/build` sempre diz "ainda juntando partidas" | Coleta parada: veja o cartão "Coleta do /build" em `/admin/uso` (chave da Riot recusada, por exemplo) |
+| `/build` diz que o OP.GG não respondeu | Veja o cartão "Fonte do /build" em `/admin/uso` — mostra o erro exato da última consulta |
 | Tudo que posta no Discord falha com 401 | `DISCORD_TOKEN` inválido (foi resetado no Developer Portal) — gere um novo e salve no Worker |
 | Dashboard fica voltando pro login | `SESSION_SECRET` mudou (invalida cookies antigos) ou cookie expirou (7 dias) |
 | "Você não administra esse servidor" | Sua conta não tem permissão de Gerenciar Servidor lá, ou o bot não foi convidado ainda |
