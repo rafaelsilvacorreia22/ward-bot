@@ -54,6 +54,12 @@ import {
   AVISOS_DO_PAINEL,
   faltaConfigurar,
   listarAvisosAoDono,
+  diaBrasil,
+  registrarAcesso,
+  registrarEvento,
+  salvarMetricaDiaria,
+  limparVisitantesAntigos,
+  estatisticasDoSite,
 } from "./db.js";
 import {
   versaoAtual,
@@ -622,6 +628,59 @@ async function registrarComandosSeMudaram(env) {
   return { mudou: true };
 }
 
+// ---------- contador de acessos do site ----------
+
+// Robôs (Google, prévia de link do Discord/WhatsApp, monitores) não contam
+// como visita: inflariam tudo e não são gente.
+const NAVEGADOR_ROBO = /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|telegram|discord|embed|monitor|curl|wget|python|headless|lighthouse/i;
+
+// /build/Fizz fica como está (dá para ver quais campeões são vistos); o
+// painel de cada servidor vira um caminho só, para não espalhar ids.
+function caminhoParaContar(pathname) {
+  if (/^\/dashboard\/\d+/.test(pathname)) return "/dashboard/servidor";
+  return pathname;
+}
+
+// Domínio de onde a pessoa veio, agrupado do jeito que interessa.
+function origemDaVisita(request, host) {
+  const referer = request.headers.get("Referer");
+  if (!referer) return "direto";
+  try {
+    const dominio = new URL(referer).hostname.replace(/^www\./, "");
+    if (dominio === host) return "o próprio site";
+    if (/(^|\.)google\./.test(dominio)) return "google";
+    if (/(^|\.)bing\.com$/.test(dominio)) return "bing";
+    if (/discord(app)?\.com$/.test(dominio)) return "discord";
+    return dominio;
+  } catch {
+    return "direto";
+  }
+}
+
+async function contarVisita(request, resposta, env) {
+  const url = new URL(request.url);
+  if (request.method !== "GET" || resposta.status !== 200) return;
+  if (!(resposta.headers.get("Content-Type") ?? "").includes("text/html")) return;
+  if (url.pathname.startsWith("/admin")) return; // o dono do bot olhando não conta
+  const navegador = request.headers.get("User-Agent") ?? "";
+  if (!navegador || NAVEGADOR_ROBO.test(navegador)) return;
+
+  // Hash de (dia + IP + navegador + segredo): conta a mesma pessoa uma vez por
+  // dia sem guardar o IP — e o segredo impede de recalcular o hash de fora.
+  const ip = request.headers.get("CF-Connecting-IP") ?? "";
+  const dados = new TextEncoder().encode(`${diaBrasil()}|${ip}|${navegador}|${env.SESSION_SECRET ?? ""}`);
+  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", dados))]
+    .slice(0, 12)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  await registrarAcesso(env, {
+    caminho: caminhoParaContar(url.pathname),
+    origem: origemDaVisita(request, url.hostname),
+    hashVisitante: hash,
+  });
+}
+
 // Roteia as requisições HTTP. Quem chama (o fetch lá embaixo) é que trata as
 // exceções — nada aqui pode escapar sem virar uma página legível.
 async function rotear(request, env, ctx) {
@@ -673,7 +732,7 @@ async function rotear(request, env, ctx) {
           return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
         }
       }
-      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos, avisosAoDono] =
+      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos, avisosAoDono, estatisticas] =
         await Promise.all([
           listarServidoresDoBot(env),
           listarTodasConfigs(env),
@@ -683,7 +742,20 @@ async function rotear(request, env, ctx) {
           contarCacheBuild(env).catch(() => 0),
           pegarEstado(env, "emojis_completos"),
           listarAvisosAoDono(env).catch(() => new Map()),
+          estatisticasDoSite(env).catch((err) => {
+            console.log("Não carreguei as estatísticas:", err.message);
+            return null;
+          }),
         ]);
+      // Aproveita a lista que acabou de chegar para atualizar o retrato de
+      // hoje do gráfico de crescimento.
+      ctx.waitUntil(
+        salvarMetricaDiaria(
+          env,
+          servidores.length,
+          servidores.reduce((t, g) => t + (g.approximate_member_count ?? 0), 0)
+        ).catch(() => {})
+      );
       // A saúde da fonte das builds não é de nenhum servidor em particular,
       // então entra aqui como estado global do bot. O "Avisar o dono" só
       // aparece para quem entrou logado (não pela chave na URL).
@@ -695,6 +767,7 @@ async function rotear(request, env, ctx) {
           buildsEmCache,
           emojisCompletos,
           avisosAoDono,
+          estatisticas,
           podeAvisarDono: !temChave,
           resultadoAviso: { tipo: url.searchParams.get("aviso"), servidor: url.searchParams.get("servidor") },
         }),
@@ -914,7 +987,22 @@ async function rotear(request, env, ctx) {
     }
 
     if (url.pathname === "/auth/callback" && request.method === "GET") {
-      return tratarCallback(env, request, origin);
+      const resposta = await tratarCallback(env, request, origin);
+      // Login que deu certo termina em redirecionamento para o painel.
+      if (resposta.status === 302) ctx.waitUntil(registrarEvento(env, "login").catch(() => {}));
+      return resposta;
+    }
+
+    // Todo botão "Adicionar ao Discord" do site passa por aqui: conta o
+    // clique e segue para a tela de autorização do Discord.
+    if (url.pathname === "/convidar" && request.method === "GET") {
+      ctx.waitUntil(registrarEvento(env, "convite").catch(() => {}));
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `https://discord.com/oauth2/authorize?client_id=${env.DISCORD_CLIENT_ID}&scope=bot+applications.commands&permissions=19456`,
+        },
+      });
     }
 
     if (url.pathname === "/dashboard" && request.method === "GET") {
@@ -1108,12 +1196,16 @@ export default {
   // achar). Então tudo passa por este try/catch: registra o erro no log e
   // devolve uma página com texto de verdade.
   async fetch(request, env, ctx) {
+    let resposta;
     try {
-      return await rotear(request, env, ctx);
+      resposta = await rotear(request, env, ctx);
     } catch (err) {
       console.log("Erro não tratado:", err.stack ?? err.message);
       return paginaHtml("Deu problema", paginaErro());
     }
+    // Conta a visita depois de a página já ter saído — não atrasa ninguém.
+    ctx.waitUntil(contarVisita(request, resposta, env).catch((err) => console.log("Não contei a visita:", err.message)));
+    return resposta;
   },
 
   async scheduled(evento, env, ctx) {
@@ -1156,9 +1248,23 @@ export default {
             : { pulado: true };
         const skins = await postarSkinsNovas(env).catch((err) => ({ erro: err.message }));
         const youtube = await checarYoutube(env).catch((err) => ({ erro: err.message }));
+        // Retrato do bot para o gráfico de crescimento do painel: uma vez por
+        // hora basta (vale o último do dia). A faxina dos visitantes únicos,
+        // uma vez por dia.
+        const metricas =
+          minuto < 15
+            ? await listarServidoresDoBot(env)
+                .then((s) =>
+                  salvarMetricaDiaria(env, s.length, s.reduce((t, g) => t + (g.approximate_member_count ?? 0), 0))
+                )
+                .then(() => ({ ok: true }), (err) => ({ erro: err.message }))
+            : { pulado: true };
+        if (new Date(evento.scheduledTime ?? Date.now()).getUTCHours() === 6 && minuto < 15) {
+          await limparVisitantesAntigos(env).catch(() => {});
+        }
         const comandos = await registrarComandosSeMudaram(env).catch((err) => ({ erro: err.message }));
         const vitrine = await atualizarVitrineBuild(env).catch((err) => ({ erro: err.message }));
-        console.log("cron:", JSON.stringify({ patch, noticias, promocoes, skins, youtube, comandos, vitrine }));
+        console.log("cron:", JSON.stringify({ patch, noticias, promocoes, skins, youtube, metricas, comandos, vitrine }));
       })()
     );
   },

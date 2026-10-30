@@ -12,6 +12,7 @@ import {
   urlIconeCampeao,
 } from "./riot.js";
 import { traduzirParaPtBr } from "./traducao.js";
+import { registrarBuildPedida } from "./db.js";
 import { MODOS, ROTAS, FRAGMENTOS, buscarBuild, dadosDoJogo } from "./builds.js";
 
 const CAMPEAO = { type: 3, name: "campeao", description: "Campeão", required: true, autocomplete: true };
@@ -235,6 +236,8 @@ export const COMANDOS = {
       await editarResposta(interacao, {
         embeds: [embedDaBuild({ campeao, build, dados, emojis, versao, origin })],
       });
+      // Para o painel de administração saber quais builds o pessoal pede.
+      await registrarBuildPedida(env, campeao.nome, modo).catch(() => {});
     },
 
     // Sugestões enquanto a pessoa digita. Tem que responder em menos de 3s,

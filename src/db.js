@@ -243,6 +243,92 @@ export async function contarCacheBuild(env) {
   return linha?.total ?? 0;
 }
 
+// ---------- estatísticas (painel de administração) ----------
+
+// Dia no fuso de Brasília, "2026-10-30": é por ele que tudo é agrupado.
+export function diaBrasil(data = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(data);
+}
+
+// Uma visita a uma página: soma na página, na origem e registra o visitante
+// único do dia (só o hash — ver migracoes/0011). Um batch só, para gastar
+// uma consulta por visita.
+export async function registrarAcesso(env, { caminho, origem, hashVisitante }) {
+  const dia = diaBrasil();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO acessos (dia, caminho, visitas) VALUES (?, ?, 1)
+       ON CONFLICT(dia, caminho) DO UPDATE SET visitas = visitas + 1`
+    ).bind(dia, caminho),
+    env.DB.prepare(
+      `INSERT INTO origens (dia, origem, visitas) VALUES (?, ?, 1)
+       ON CONFLICT(dia, origem) DO UPDATE SET visitas = visitas + 1`
+    ).bind(dia, origem),
+    env.DB.prepare("INSERT OR IGNORE INTO visitantes (dia, hash) VALUES (?, ?)").bind(dia, hashVisitante),
+  ]);
+}
+
+export async function registrarEvento(env, evento) {
+  await env.DB.prepare(
+    `INSERT INTO eventos (dia, evento, total) VALUES (?, ?, 1)
+     ON CONFLICT(dia, evento) DO UPDATE SET total = total + 1`
+  )
+    .bind(diaBrasil(), evento)
+    .run();
+}
+
+export async function registrarBuildPedida(env, campeao, modo) {
+  await env.DB.prepare(
+    `INSERT INTO builds_pedidas (campeao, modo, total, ultimo) VALUES (?, ?, 1, datetime('now'))
+     ON CONFLICT(campeao, modo) DO UPDATE SET total = total + 1, ultimo = datetime('now')`
+  )
+    .bind(campeao, modo)
+    .run();
+}
+
+export async function salvarMetricaDiaria(env, servidores, membros) {
+  await env.DB.prepare(
+    `INSERT INTO metricas_diarias (dia, servidores, membros) VALUES (?, ?, ?)
+     ON CONFLICT(dia) DO UPDATE SET servidores = excluded.servidores, membros = excluded.membros`
+  )
+    .bind(diaBrasil(), servidores, membros)
+    .run();
+}
+
+// Visitante único só serve para contar o dia; depois de 60 dias sai.
+export async function limparVisitantesAntigos(env) {
+  const limite = diaBrasil(new Date(Date.now() - 60 * 86400000));
+  await env.DB.prepare("DELETE FROM visitantes WHERE dia < ?").bind(limite).run();
+}
+
+// Tudo que o painel de administração mostra, dos últimos 30 dias.
+export async function estatisticasDoSite(env) {
+  const desde = diaBrasil(new Date(Date.now() - 29 * 86400000));
+  const [porDia, unicosPorDia, paginas, origens, eventos, builds, metricas] = await env.DB.batch([
+    env.DB.prepare("SELECT dia, SUM(visitas) AS visitas FROM acessos WHERE dia >= ? GROUP BY dia").bind(desde),
+    env.DB.prepare("SELECT dia, COUNT(*) AS unicos FROM visitantes WHERE dia >= ? GROUP BY dia").bind(desde),
+    env.DB.prepare(
+      "SELECT caminho, SUM(visitas) AS visitas FROM acessos WHERE dia >= ? GROUP BY caminho ORDER BY visitas DESC LIMIT 12"
+    ).bind(desde),
+    env.DB.prepare(
+      "SELECT origem, SUM(visitas) AS visitas FROM origens WHERE dia >= ? GROUP BY origem ORDER BY visitas DESC LIMIT 10"
+    ).bind(desde),
+    env.DB.prepare("SELECT dia, evento, total FROM eventos WHERE dia >= ?").bind(desde),
+    env.DB.prepare("SELECT campeao, modo, total, ultimo FROM builds_pedidas ORDER BY total DESC LIMIT 12"),
+    env.DB.prepare("SELECT dia, servidores, membros FROM metricas_diarias WHERE dia >= ? ORDER BY dia").bind(desde),
+  ]);
+  return {
+    porDia: porDia.results,
+    unicosPorDia: unicosPorDia.results,
+    paginas: paginas.results,
+    origens: origens.results,
+    eventos: eventos.results,
+    builds: builds.results,
+    metricas: metricas.results,
+    hoje: diaBrasil(),
+  };
+}
+
 export async function pegarEstado(env, chave) {
   const linha = await env.DB.prepare("SELECT value FROM bot_state WHERE key = ?")
     .bind(chave)

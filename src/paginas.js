@@ -15,8 +15,10 @@ function escapar(texto) {
   })[c]);
 }
 
-function convite(clientId) {
-  return `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot+applications.commands&permissions=19456`;
+// Passa pela rota /convidar, que conta o clique para o painel de
+// administração e redireciona para a autorização do Discord.
+function convite() {
+  return "/convidar";
 }
 
 // Arte decorativa da página inicial. Qualquer versão serve: o Data Dragon
@@ -653,6 +655,33 @@ const ESTILO = `
   }
   .tag.ok { border-color: var(--verde); color: var(--verde); }
   .tag.atencao { border-color: var(--alerta); color: var(--alerta); }
+
+  /* ---------- estatísticas do painel de uso ---------- */
+  .grafico {
+    display: flex; align-items: flex-end; gap: 3px; height: 170px;
+    margin: 18px 0 26px; padding: 0 2px; border-bottom: 1px solid var(--linha);
+  }
+  .grafico.baixo { height: 90px; margin-bottom: 4px; }
+  .grafico .barra { position: relative; flex: 1; height: 100%; display: flex; align-items: flex-end; }
+  .grafico .barra span { position: absolute; left: 0; right: 0; bottom: 0; min-height: 1px; }
+  .grafico .barra-total { background: color-mix(in srgb, var(--latao) 35%, transparent); }
+  .grafico .barra-unicos { background: var(--verde); left: 22% !important; right: 22% !important; }
+  .grafico .barra:hover .barra-total { background: color-mix(in srgb, var(--latao) 60%, transparent); }
+  .grafico small {
+    position: absolute; top: 100%; left: 50%; translate: -50% 4px;
+    font-size: .64rem; color: var(--texto-fraco); white-space: nowrap;
+  }
+  .legenda i { display: inline-block; width: 10px; height: 10px; margin: 0 4px -1px 10px; }
+  .legenda i:first-child { margin-left: 0; }
+  .leg-total { background: color-mix(in srgb, var(--latao) 35%, transparent); }
+  .leg-unicos { background: var(--verde); }
+  .tabela-estat { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  .tabela-estat td { padding: 7px 4px; border-bottom: 1px solid var(--linha); }
+  .tabela-estat td:last-child { text-align: right; font-weight: 600; color: var(--latao-claro); white-space: nowrap; }
+  .tabela-estat code { background: none; border: 0; padding: 0; }
+  .sobe { color: var(--verde); font-weight: 600; }
+  .desce { color: var(--alerta); font-weight: 600; }
+  main.conteudo .duas-colunas .cartao { margin: 16px 0; }
   .noticias { display: flex; flex-direction: column; gap: 7px; margin: 12px 0 16px; }
   .noticia {
     display: flex; align-items: flex-start; gap: 11px; margin: 0; cursor: pointer;
@@ -1635,6 +1664,17 @@ export function paginaPrivacidade() {
     </div>
 
     <div class="cartao">
+      <h2>Contagem de visitas ao site</h2>
+      <p>O site conta quantas visitas cada página recebe por dia, de qual site
+      a pessoa veio (por exemplo, Google ou Discord) e quantas pessoas
+      diferentes visitaram no dia. Para saber se é a mesma pessoa, usa um
+      código embaralhado que muda todo dia e não permite descobrir o IP, a
+      conta nem nada de quem visitou — o IP em si não é guardado. Esses
+      códigos são apagados depois de 60 dias. Não há cookies de rastreamento
+      nem ferramentas de terceiros.</p>
+    </div>
+
+    <div class="cartao">
       <h2>Estatísticas de build</h2>
       <p>As builds do comando <code>/build</code> vêm das estatísticas públicas
       agregadas do OP.GG (taxas de vitória e escolhas mais comuns por campeão).
@@ -1705,6 +1745,119 @@ export function paginaTermos() {
 
     <p class="aviso">${AVISO_RIOT}</p>
   `;
+}
+
+// Seção de estatísticas do painel de uso: acessos ao site dos últimos 30
+// dias, de onde vêm, conversão em "Adicionar ao Discord", builds mais
+// pedidas e o crescimento do bot. Sem dado nenhum de quem visitou.
+function painelEstatisticas(est) {
+  if (!est) return `<div class="cartao"><h2>Estatísticas</h2><p class="fraco">Não consegui carregar agora.</p></div>`;
+
+  // Os 30 dias, do mais antigo para hoje (datas no fuso de Brasília).
+  const base = new Date(`${est.hoje}T12:00:00Z`).getTime();
+  const dias = Array.from({ length: 30 }, (_, i) => new Date(base - (29 - i) * 86400000).toISOString().slice(0, 10));
+  const visitas = new Map(est.porDia.map((r) => [r.dia, r.visitas]));
+  const unicos = new Map(est.unicosPorDia.map((r) => [r.dia, r.unicos]));
+  const somaEm = (mapa, n) => dias.slice(-n).reduce((t, d) => t + (mapa.get(d) ?? 0), 0);
+  const eventoEm = (nome, n) =>
+    est.eventos.filter((e) => e.evento === nome && dias.slice(-n).includes(e.dia)).reduce((t, e) => t + e.total, 0);
+
+  const visitantes30 = somaEm(unicos, 30);
+  const convites30 = eventoEm("convite", 30);
+  const conversao = visitantes30 ? `${((convites30 / visitantes30) * 100).toFixed(1).replace(".", ",")}%` : "—";
+  const n = (v) => Number(v ?? 0).toLocaleString("pt-BR");
+  const dataCurta = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+
+  const tile = (valor, rotulo) => `<div class="tile"><strong>${valor}</strong><span>${rotulo}</span></div>`;
+
+  // Gráfico de barras: visitas (barra clara) e visitantes únicos (barra cheia).
+  const maior = Math.max(1, ...dias.map((d) => visitas.get(d) ?? 0));
+  const barras = dias
+    .map((d, i) => {
+      const v = visitas.get(d) ?? 0;
+      const u = unicos.get(d) ?? 0;
+      return `<div class="barra" title="${dataCurta(d)}: ${n(v)} visitas, ${n(u)} visitantes">
+          <span class="barra-total" style="height:${(v / maior) * 100}%"></span>
+          <span class="barra-unicos" style="height:${(u / maior) * 100}%"></span>
+          ${i % 5 === 4 || i === 29 ? `<small>${dataCurta(d)}</small>` : ""}
+        </div>`;
+    })
+    .join("");
+
+  const tabela = (titulo, linhas, vazio) => `
+      <div class="cartao">
+        <h2>${titulo}</h2>
+        ${
+          linhas.length
+            ? `<table class="tabela-estat">${linhas.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("")}</table>`
+            : `<p class="fraco">${vazio}</p>`
+        }
+      </div>`;
+
+  const nomesModo = { normal: "partida normal", aram: "ARAM" };
+  const metricas = est.metricas;
+  const primeiro = metricas[0];
+  const ultimo = metricas[metricas.length - 1];
+  const variacao = (a, b) => {
+    const d = (b ?? 0) - (a ?? 0);
+    return d > 0 ? `<span class="sobe">+${n(d)}</span>` : d < 0 ? `<span class="desce">${n(d)}</span>` : `<span class="fraco">±0</span>`;
+  };
+  const maiorServidores = Math.max(1, ...metricas.map((m) => m.servidores));
+  const barrasServidores = metricas
+    .map(
+      (m) => `<div class="barra" title="${dataCurta(m.dia)}: ${n(m.servidores)} servidores, ${n(m.membros)} membros">
+          <span class="barra-unicos" style="height:${(m.servidores / maiorServidores) * 100}%"></span>
+        </div>`
+    )
+    .join("");
+
+  return `
+    <div class="cartao">
+      <h2>Site — últimos 30 dias</h2>
+      <div class="tiles">
+        ${tile(n(unicos.get(est.hoje)), "visitantes hoje")}
+        ${tile(n(visitas.get(est.hoje)), "visitas hoje")}
+        ${tile(n(somaEm(unicos, 7)), "visitantes em 7 dias")}
+        ${tile(n(visitantes30), "visitantes em 30 dias")}
+        ${tile(n(somaEm(visitas, 30)), "visitas em 30 dias")}
+        ${tile(n(convites30), "cliques em adicionar")}
+        ${tile(conversao, "visitantes que clicaram em adicionar")}
+        ${tile(n(eventoEm("login", 30)), "logins no painel")}
+      </div>
+      <div class="grafico" aria-label="Visitas por dia">${barras}</div>
+      <p class="fraco legenda"><i class="leg-total"></i> visitas <i class="leg-unicos"></i> visitantes únicos ·
+      visitante único é contado por dia, sem guardar IP; robôs não entram na conta.</p>
+    </div>
+    <div class="duas-colunas">
+      ${tabela(
+        "Páginas mais vistas",
+        est.paginas.map((p) => [`<code>${escapar(p.caminho)}</code>`, n(p.visitas)]),
+        "Nenhuma visita ainda."
+      )}
+      ${tabela(
+        "De onde vêm",
+        est.origens.map((o) => [escapar(o.origem), n(o.visitas)]),
+        "Nenhuma visita ainda."
+      )}
+    </div>
+    <div class="duas-colunas">
+      ${tabela(
+        "Builds mais pedidas",
+        est.builds.map((b) => [`${escapar(b.campeao)} <span class="fraco">${nomesModo[b.modo] ?? escapar(b.modo)}</span>`, n(b.total)]),
+        "Ninguém usou o /build desde que a contagem começou."
+      )}
+      <div class="cartao">
+        <h2>Crescimento do bot</h2>
+        ${
+          ultimo
+            ? `<p><strong>${n(ultimo.servidores)}</strong> servidores ${variacao(primeiro.servidores, ultimo.servidores)} ·
+               <strong>${n(ultimo.membros)}</strong> membros ${variacao(primeiro.membros, ultimo.membros)}
+               <span class="fraco">desde ${dataCurta(primeiro.dia)}</span></p>
+               <div class="grafico baixo">${barrasServidores}</div>`
+            : `<p class="fraco">O primeiro retrato sai na próxima hora cheia.</p>`
+        }
+      </div>
+    </div>`;
 }
 
 // Painel privado de acompanhamento (rota /admin/uso). Mostra só dados de
@@ -1859,6 +2012,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
       ${tile(totalComandos, "comandos usados")}
       ${tile(comFalha, "com falha no envio")}
     </div>
+    ${painelEstatisticas(estadoGlobal.estatisticas)}
     ${painelColeta}
     ${cartoes}
     ${bloqueSaiu}
