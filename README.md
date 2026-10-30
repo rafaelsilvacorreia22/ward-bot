@@ -1,4 +1,4 @@
-# Ward — bot de League of Legends para Discord
+# Ward bot de League of Legends para Discord
 
 Bot que qualquer servidor pode adicionar (não precisa mexer em código). Cinco
 avisos, cada um com seu canal, configurados pelo **dashboard web**, e um
