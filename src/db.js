@@ -69,6 +69,27 @@ export async function salvarConfig(env, guildId, config) {
     .run();
 }
 
+// Os avisos que cada servidor configura no painel: nome, coluna de ligado e
+// coluna do canal. Usado pelo painel de uso e pelo "Avisar o dono".
+export const AVISOS_DO_PAINEL = [
+  ["Patch novo", "patch_enabled", "patch_channel_id"],
+  ["Notícias oficiais", "news_enabled", "news_channel_id"],
+  ["Skins em promoção", "sale_enabled", "sale_channel_id"],
+  ["Skins novas", "skins_enabled", "skins_channel_id"],
+  ["Vídeos do YouTube", "youtube_enabled", "youtube_channel_id"],
+];
+
+// Nomes dos avisos que ainda não estão ligados com canal escolhido.
+export function faltaConfigurar(config) {
+  return AVISOS_DO_PAINEL.filter(([, ligado, canal]) => !config?.[ligado] || !config?.[canal]).map(([nome]) => nome);
+}
+
+// Quando cada servidor recebeu o último "Avisar o dono" (guid -> ISO).
+export async function listarAvisosAoDono(env) {
+  const { results } = await env.DB.prepare("SELECT key, value FROM bot_state WHERE key LIKE 'aviso\\_dono\\_%' ESCAPE '\\'").all();
+  return new Map(results.map((r) => [r.key.slice("aviso_dono_".length), r.value]));
+}
+
 // Servidores com um dos avisos novos ligado e canal escolhido. A coluna vem
 // deste mapa fixo, nunca de fora (ver regra do topo do arquivo).
 const COLUNAS_AVISO = {

@@ -2,6 +2,8 @@
 // escape básico pra evitar XSS a partir de nomes de servidor/canal.
 
 import { FRAGMENTOS } from "./builds.js";
+import { faltaConfigurar } from "./db.js";
+import { SITE } from "./discord.js";
 
 function escapar(texto) {
   return String(texto).replace(/[&<>"']/g, (c) => ({
@@ -846,13 +848,36 @@ const ESTILO = `
 `;
 
 
+// Texto que o Google mostra embaixo do link e que aparece na prévia quando o
+// link é colado no Discord ou no WhatsApp.
+const DESCRICAO_PADRAO =
+  "Bot de Discord de League of Legends, grátis e em português: /build com a build do meta de cada campeão, " +
+  "aviso de patch novo, notícias oficiais, skins novas e em promoção e vídeos do canal oficial.";
+
 function layout(titulo, corpo, opcoes = {}) {
   const classeMain = opcoes.cheio ? "cheio" : "conteudo";
+  const descricao = opcoes.descricao ?? DESCRICAO_PADRAO;
+  const imagem = opcoes.imagem ?? `${SITE}/og.png`;
+  // Página só para quem está logado (painel, admin) não deve ir para o
+  // Google — e nem tem conteúdo útil para quem chega por lá.
+  const indexar = opcoes.indexar !== false;
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="${escapar(descricao)}">
+${indexar ? "" : '<meta name="robots" content="noindex">'}
+${opcoes.caminho ? `<link rel="canonical" href="${SITE}${escapar(opcoes.caminho)}">` : ""}
+<meta property="og:site_name" content="Ward">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:title" content="${escapar(titulo)}">
+<meta property="og:description" content="${escapar(descricao)}">
+<meta property="og:image" content="${escapar(imagem)}">
+${opcoes.caminho ? `<meta property="og:url" content="${SITE}${escapar(opcoes.caminho)}">` : ""}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#c8a24a">
 <link rel="icon" href="/favicon.webp" type="image/webp">
 <!-- Sem preconnect nem stylesheet de terceiro: as fontes são servidas por
      este mesmo domínio, então não há handshake externo antes do texto
@@ -1732,6 +1757,41 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
     return `<span class="tag ok">ligado</span> <span class="fraco">${quando}</span>`;
   };
 
+  // "Avisar o dono": manda para o dono do servidor o que falta configurar.
+  // Mostra a última vez que foi mandado, para não insistir à toa.
+  const RESULTADOS_AVISO = {
+    dm: "✓ Aviso enviado por mensagem privada ao dono.",
+    canal: "✓ O dono não aceita mensagem privada — o aviso foi postado no canal de boas-vindas do servidor, marcando ele.",
+    dm_fechada: "O dono não aceita mensagem privada e o servidor não tem canal de boas-vindas. Não deu para avisar.",
+    erro: "Não consegui mandar o aviso agora — tenta de novo em instantes.",
+  };
+  const resultado = estadoGlobal.resultadoAviso ?? {};
+  const blocoAvisarDono = (g, c) => {
+    if (!estadoGlobal.podeAvisarDono) return "";
+    const faltam = faltaConfigurar(c);
+    const ultimo = estadoGlobal.avisosAoDono?.get(g.id);
+    const banner =
+      resultado.servidor === g.id && RESULTADOS_AVISO[resultado.tipo]
+        ? `<p class="banner${["dm_fechada", "erro"].includes(resultado.tipo) ? " atencao" : ""}">${RESULTADOS_AVISO[resultado.tipo]}</p>`
+        : "";
+    // Aspas e barra saem do nome antes de ir para dentro do confirm() — senão
+    // um servidor chamado "Bar do Zé's" quebraria o JavaScript do botão.
+    const nomeSeguro = escapar(String(g.name).replace(/['"\\]/g, ""));
+    return `
+        ${banner}
+        <form method="POST" action="/admin/avisar-dono/${g.id}"
+              onsubmit="return confirm('Mandar para o dono de ${nomeSeguro} o que falta configurar?')">
+          <button class="botao vazado discreto" type="submit">${
+            faltam.length ? `Avisar o dono: falta${faltam.length === 1 ? "" : "m"} ${faltam.length}` : "Avisar o dono (tudo ligado)"
+          }</button>
+          <span class="fraco">${ultimo ? `último aviso ${escapar(quandoFalhou(ultimo))}` : "nunca avisado"}</span>
+        </form>
+        <form method="POST" action="/admin/sair/${g.id}"
+              onsubmit="return confirm('Tirar o Ward do servidor ${nomeSeguro}? Para voltar, alguém de lá teria que adicionar de novo.')">
+          <button class="botao vazado discreto" type="submit">Tirar o Ward deste servidor</button>
+        </form>`;
+  };
+
   const cartoes = servidores
     .map((g) => {
       const c = configPorGuild.get(g.id);
@@ -1757,7 +1817,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
         .join("");
 
       return `
-      <div class="cartao">
+      <div class="cartao" id="s${g.id}">
         <h2>${escapar(g.name)}</h2>
         <p class="fraco">${g.approximate_member_count ?? "?"} membros · id ${g.id}</p>
         ${falhas}
@@ -1767,6 +1827,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
         <p>Skins novas: ${aviso(c?.skins_enabled, c?.skins_channel_id, null)}</p>
         <p>YouTube: ${aviso(c?.youtube_enabled, c?.youtube_channel_id, null)}</p>
         <p>${listaComandos}</p>
+        ${blocoAvisarDono(g, c)}
       </div>`;
     })
     .join("");
@@ -1784,6 +1845,13 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
   return `
     <a class="voltar" href="/">← início</a>
     <h1>Uso do Ward</h1>
+    ${
+      resultado.tipo === "saiu"
+        ? `<p class="banner">✓ O Ward saiu do servidor.</p>`
+        : resultado.tipo === "erro_saida"
+          ? `<p class="banner atencao">Não consegui tirar o Ward desse servidor agora — tenta de novo.</p>`
+          : ""
+    }
     <div class="tiles">
       ${tile(servidores.length, "servidores")}
       ${tile(ativos, "com aviso ligado")}

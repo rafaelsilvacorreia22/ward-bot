@@ -3,6 +3,26 @@
 
 export const API = "https://discord.com/api/v10";
 
+// Endereço público do site. O cron não tem requisição de onde tirar a
+// origem, então fica fixo aqui.
+export const SITE = "https://ward-bot.ghostbot.workers.dev";
+
+// Todo aviso público que o Ward posta leva a "assinatura" com o link do site:
+// quem vê o aviso num servidor descobre de onde ele vem e como colocar no
+// seu. Em embed vira o autor (clicável, no topo); em mensagem só de texto
+// (vídeo do YouTube) vira uma linha pequena no fim — com o link entre < >
+// para o Discord não abrir uma segunda prévia além da do vídeo.
+const AUTOR_WARD = { name: "Ward · adicione ao seu servidor", url: SITE, icon_url: `${SITE}/favicon.webp` };
+
+function assinarComWard(corpo) {
+  if (corpo.embeds?.length) {
+    const [primeiro, ...resto] = corpo.embeds;
+    return { ...corpo, embeds: [{ author: AUTOR_WARD, ...primeiro }, ...resto] };
+  }
+  if (corpo.content) return { ...corpo, content: `${corpo.content}\n-# Enviado pelo Ward · adicione ao seu servidor: <${SITE}>` };
+  return corpo;
+}
+
 export const TIPO_INTERACAO = {
   PING: 1,
   COMANDO: 2,
@@ -71,6 +91,13 @@ export async function api(env, caminho, opcoes = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// Nenhuma mensagem do bot marca ninguém, a não ser quando quem chama pede
+// explicitamente. Sem isto, texto vindo de fora repetido pelo bot (o nome
+// de campeão digitado no /build, por exemplo) poderia disparar @everyone ou
+// marcar cargos no servidor com a permissão do bot.
+const SEM_MENCOES = { parse: [] };
+const semMencoes = (corpo) => ({ allowed_mentions: SEM_MENCOES, ...corpo });
+
 // Edita a mensagem que o bot já respondeu (depois de ADIAR_MENSAGEM). Usa o
 // token da interação, não o do bot — por isso não passa pelo api() acima.
 export async function editarResposta(interacao, corpo) {
@@ -79,7 +106,7 @@ export async function editarResposta(interacao, corpo) {
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(corpo),
+      body: JSON.stringify(semMencoes(corpo)),
     }
   );
   if (!res.ok) {
@@ -94,7 +121,7 @@ export async function enviarFollowup(interacao, corpo) {
   const res = await fetch(`${API}/webhooks/${interacao.application_id}/${interacao.token}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(corpo),
+    body: JSON.stringify(semMencoes(corpo)),
   });
   if (!res.ok) {
     throw new Error(`Falha ao enviar mensagem extra: ${res.status} ${await res.text()}`);
@@ -133,11 +160,36 @@ export async function listarCanaisTexto(env, guildId) {
   return canais.filter((c) => c.type === 0);
 }
 
-export async function enviarMensagem(env, canalId, corpo) {
+// Dados do servidor: nome, dono (owner_id) e canal de boas-vindas
+// (system_channel_id). Só funciona em servidor onde o bot está.
+export async function pegarServidor(env, guildId) {
+  return api(env, `/guilds/${guildId}`);
+}
+
+// Mensagem privada. O Discord exige abrir (ou reaproveitar) o canal de DM
+// antes de mandar; falha com 50007 se a pessoa não aceita DM de membros do
+// servidor.
+export async function enviarDM(env, usuarioId, corpo) {
+  const canal = await api(env, "/users/@me/channels", {
+    method: "POST",
+    body: JSON.stringify({ recipient_id: usuarioId }),
+  });
+  return enviarMensagem(env, canal.id, corpo, { assinar: false });
+}
+
+// Único caminho por onde o bot posta em canal (avisos e "postar agora"), por
+// isso a assinatura com o link do site entra aqui.
+// `assinar: false` para mensagem ao dono de um servidor que já tem o bot.
+export async function enviarMensagem(env, canalId, corpo, { assinar = true } = {}) {
   return api(env, `/channels/${canalId}/messages`, {
     method: "POST",
-    body: JSON.stringify(corpo),
+    body: JSON.stringify(semMencoes(assinar ? assinarComWard(corpo) : corpo)),
   });
+}
+
+// Tira o bot de um servidor (botão do painel de uso, só para o dono do bot).
+export async function sairDoServidor(env, guildId) {
+  return api(env, `/users/@me/guilds/${guildId}`, { method: "DELETE" });
 }
 
 // Comando global (não por servidor): propaga pra todo lugar onde o bot está

@@ -12,6 +12,9 @@ import {
   listarCanaisTexto,
   enviarMensagem,
   registrarComandosGlobais,
+  pegarServidor,
+  enviarDM,
+  sairDoServidor,
   listarEmojisDoApp,
   criarEmojiDoApp,
   api,
@@ -48,6 +51,9 @@ import {
   salvarEstado,
   contarCacheBuild,
   listarComAvisoLigado,
+  AVISOS_DO_PAINEL,
+  faltaConfigurar,
+  listarAvisosAoDono,
 } from "./db.js";
 import {
   versaoAtual,
@@ -334,6 +340,40 @@ async function checarNoticias(env, apenasGuild) {
   }
 
   return resumo;
+}
+
+// A mensagem do botão "Avisar o dono" do painel de uso: o que está ligado,
+// o que falta, e o link direto para o painel daquele servidor.
+function mensagemFaltaConfigurar(servidor, config, origin) {
+  const linhas = AVISOS_DO_PAINEL.map(([nome, ligado, canal]) => {
+    if (config[ligado] && config[canal]) return `✅ **${nome}** — ligado em <#${config[canal]}>`;
+    if (config[ligado]) return `⚠️ **${nome}** — ligado, mas sem canal escolhido`;
+    return `❌ **${nome}** — desligado`;
+  });
+  const faltam = faltaConfigurar(config).length;
+  return {
+    content: "Oi! Aqui é o Ward 👋",
+    embeds: [
+      {
+        title: faltam
+          ? `Falta pouco para usar o Ward 100% no ${servidor.name}`
+          : `O Ward está 100% configurado no ${servidor.name}`,
+        url: `${origin}/dashboard/${servidor.id}`,
+        color: 0xc8a24a,
+        description:
+          (faltam
+            ? `Você (ou alguém da sua equipe) adicionou o Ward no **${servidor.name}**, mas ainda ` +
+              `${faltam === 1 ? "falta configurar 1 aviso" : `faltam configurar ${faltam} avisos`}:\n\n`
+            : `Tudo ligado por aí:\n\n`) +
+          linhas.join("\n") +
+          `\n\nCada aviso posta no canal que você escolher, só quando tem novidade. ` +
+          `Leva 1 minuto: **[abrir o painel do servidor](${origin}/dashboard/${servidor.id})**.\n\n` +
+          `O \`/build\` e o \`/build-aram\` já funcionam sem configurar nada.`,
+        thumbnail: { url: `${origin}/favicon.webp` },
+        footer: { text: "Você recebeu isto por ser dono do servidor onde o Ward foi adicionado." },
+      },
+    ],
+  };
 }
 
 // Marca o patch atual como "já anunciado", sem postar nada. Serve para
@@ -633,21 +673,97 @@ async function rotear(request, env, ctx) {
           return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
         }
       }
-      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos] = await Promise.all([
-        listarServidoresDoBot(env),
-        listarTodasConfigs(env),
-        listarUsoComandos(env),
-        pegarEstado(env, "opgg_erro"),
-        pegarEstado(env, "opgg_erro_em"),
-        contarCacheBuild(env).catch(() => 0),
-        pegarEstado(env, "emojis_completos"),
-      ]);
+      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos, avisosAoDono] =
+        await Promise.all([
+          listarServidoresDoBot(env),
+          listarTodasConfigs(env),
+          listarUsoComandos(env),
+          pegarEstado(env, "opgg_erro"),
+          pegarEstado(env, "opgg_erro_em"),
+          contarCacheBuild(env).catch(() => 0),
+          pegarEstado(env, "emojis_completos"),
+          listarAvisosAoDono(env).catch(() => new Map()),
+        ]);
       // A saúde da fonte das builds não é de nenhum servidor em particular,
-      // então entra aqui como estado global do bot.
+      // então entra aqui como estado global do bot. O "Avisar o dono" só
+      // aparece para quem entrou logado (não pela chave na URL).
       return paginaHtml(
         "Uso do Ward",
-        paginaUso(servidores, configs, uso, { opggErro, opggErroEm, buildsEmCache, emojisCompletos })
+        paginaUso(servidores, configs, uso, {
+          opggErro,
+          opggErroEm,
+          buildsEmCache,
+          emojisCompletos,
+          avisosAoDono,
+          podeAvisarDono: !temChave,
+          resultadoAviso: { tipo: url.searchParams.get("aviso"), servidor: url.searchParams.get("servidor") },
+        }),
+        { indexar: false }
       );
+    }
+
+    // "Tirar o Ward deste servidor" do painel de uso, para servidor suspeito
+    // ou abandonado. Mesmas travas do "Avisar o dono": só a conta dona do
+    // bot, só POST.
+    const sairMatch = url.pathname.match(/^\/admin\/sair\/(\d+)$/);
+    if (sairMatch && request.method === "POST") {
+      const sessao = await pegarSessao(env, request);
+      const dono = await idDoDono(env);
+      if (!sessao || !dono || sessao.usuario_id !== dono) {
+        return new Response("Só quem cuida do bot pode fazer isso.", { status: 401 });
+      }
+      let resultado = "saiu";
+      try {
+        await sairDoServidor(env, sairMatch[1]);
+      } catch (err) {
+        console.log(`Falha ao sair de ${sairMatch[1]}:`, err.message);
+        resultado = "erro_saida";
+      }
+      return new Response(null, { status: 302, headers: { Location: `/admin/uso?aviso=${resultado}` } });
+    }
+
+    // "Avisar o dono" do painel de uso: manda para o dono do servidor uma
+    // mensagem com o que está ligado e o que falta configurar, com o link
+    // do painel daquele servidor. Só com a conta dona do bot logada — a
+    // chave de URL não vale aqui, porque isto fala com gente de fora. POST,
+    // e não GET, para nenhum pré-carregamento de link mandar mensagem sozinho.
+    const avisoMatch = url.pathname.match(/^\/admin\/avisar-dono\/(\d+)$/);
+    if (avisoMatch && request.method === "POST") {
+      const guildId = avisoMatch[1];
+      const sessao = await pegarSessao(env, request);
+      const dono = await idDoDono(env);
+      if (!sessao || !dono || sessao.usuario_id !== dono) {
+        return new Response("Só quem cuida do bot pode fazer isso.", { status: 401 });
+      }
+
+      let resultado;
+      try {
+        const [servidor, config] = await Promise.all([pegarServidor(env, guildId), pegarConfig(env, guildId)]);
+        const corpo = mensagemFaltaConfigurar(servidor, config, origin);
+        try {
+          await enviarDM(env, servidor.owner_id, corpo);
+          resultado = "dm";
+        } catch (err) {
+          // 50007: o dono não aceita DM de membros do servidor. Aí vai no
+          // canal de boas-vindas, se o servidor tiver um.
+          if (!/50007/.test(err.message) || !servidor.system_channel_id) throw err;
+          await enviarMensagem(env, servidor.system_channel_id, {
+            ...corpo,
+            content: `<@${servidor.owner_id}> ${corpo.content}`,
+            allowed_mentions: { users: [servidor.owner_id] },
+          }, { assinar: false });
+          resultado = "canal";
+        }
+        await salvarEstado(env, `aviso_dono_${guildId}`, new Date().toISOString()).catch(() => {});
+        ctx.waitUntil(registrarUsoComando(env, guildId, "painel:aviso-ao-dono").catch(() => {}));
+      } catch (err) {
+        console.log(`Falha ao avisar o dono de ${guildId}:`, err.message);
+        resultado = /50007/.test(err.message) ? "dm_fechada" : "erro";
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `/admin/uso?aviso=${resultado}&servidor=${guildId}#s${guildId}` },
+      });
     }
 
     // Alinha o estado com a realidade sem postar nada (ver sincronizarEstado).
@@ -689,11 +805,50 @@ async function rotear(request, env, ctx) {
       return json({ servidor: apenasGuild, patch, noticias, promocoes, youtube });
     }
 
+    // Para o Google: o que pode visitar e onde está a lista de páginas.
+    if (url.pathname === "/robots.txt") {
+      return new Response(
+        `User-agent: *\nAllow: /\nDisallow: /dashboard\nDisallow: /admin\nDisallow: /login\nDisallow: /auth\nDisallow: /sair\n\nSitemap: ${origin}/sitemap.xml\n`,
+        { headers: { "Content-Type": "text/plain; charset=utf-8" } }
+      );
+    }
+
+    // Todas as páginas públicas, incluindo a build de cada campeão nos dois
+    // modos — é o que deixa "build fizz" e "build jinx aram" aparecerem no
+    // Google apontando para cá.
+    if (url.pathname === "/sitemap.xml") {
+      const campeoes = await todosOsCampeoes(env, await versaoAtual());
+      const hoje = new Date().toISOString().slice(0, 10);
+      const entrada = (caminho, prioridade) =>
+        `<url><loc>${origin}${caminho}</loc><lastmod>${hoje}</lastmod><priority>${prioridade}</priority></url>`;
+      const urls = [
+        entrada("/", "1.0"),
+        entrada("/build", "0.9"),
+        ...campeoes.flatMap((c) => {
+          const base = `/build/${encodeURIComponent(c.arquivoImagem)}`;
+          return [entrada(base, "0.8"), entrada(`${base}?modo=aram`, "0.6")];
+        }),
+        entrada("/privacidade", "0.2"),
+        entrada("/termos", "0.2"),
+      ];
+      return new Response(
+        `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
+          .join("")
+          .replace(/&/g, "&amp;")}</urlset>`,
+        { headers: { "Content-Type": "application/xml; charset=utf-8" } }
+      );
+    }
+
     // Lista de campeões com link para a build de cada um.
     if (url.pathname === "/build" && request.method === "GET") {
       const versao = await versaoAtual();
       const campeoes = await todosOsCampeoes(env, versao);
-      return paginaHtml("Builds do meta — Ward", paginaListaBuilds(campeoes, versao));
+      return paginaHtml("Builds do meta de todos os campeões — Ward", paginaListaBuilds(campeoes, versao), {
+        caminho: "/build",
+        descricao:
+          "A build que mais ganha de cada campeão do League of Legends no patch atual: itens, runas, feitiços " +
+          "e ordem de habilidades, em partida normal e ARAM. Também no Discord com /build.",
+      });
     }
 
     // A mesma build do /build, em página: ícones grandes e o link que o
@@ -710,9 +865,24 @@ async function rotear(request, env, ctx) {
         buscarBuild(env, campeao, modo, rota).catch(() => null),
         dadosDoJogo(env, versao),
       ]);
+      // Título e descrição no formato que as pessoas pesquisam ("build fizz
+      // meio", "build jinx aram"), com o patch para o Google ver que é atual.
+      const nomeRota = build?.rota ? ` ${ROTAS[build.rota] ?? ""}` : "";
+      const nomeModo = modo === "aram" ? " ARAM" : nomeRota;
+      const patchPub = `${Number(versao.split(".")[0]) + 10}.${versao.split(".")[1]}`;
+      const itensNucleo = (build?.nucleo?.ids ?? []).map((id) => dados.itens[id]?.nome).filter(Boolean).join(", ");
       return paginaHtml(
-        `${campeao.nome} — build — Ward`,
-        paginaBuild({ campeao, build, dados, versao, modo })
+        `Build ${campeao.nome}${nomeModo} — patch ${patchPub} | Ward`,
+        paginaBuild({ campeao, build, dados, versao, modo }),
+        {
+          caminho: `/build/${encodeURIComponent(campeao.arquivoImagem)}${modo === "aram" ? "?modo=aram" : ""}`,
+          imagem: `https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${campeao.arquivoImagem}_0.jpg`,
+          descricao: build?.jogos
+            ? `Build de ${campeao.nome}${nomeModo} que mais ganha no patch ${patchPub}: ${itensNucleo}. ` +
+              `${(build.taxa * 100).toFixed(1).replace(".", ",")}% de vitória em ${build.jogos.toLocaleString("pt-BR")} partidas, ` +
+              `com runas, feitiços e ordem de habilidades.`
+            : `Build de ${campeao.nome}${nomeModo} no meta atual do League of Legends: itens, runas, feitiços e habilidades.`,
+        }
       );
     }
 
@@ -722,7 +892,7 @@ async function rotear(request, env, ctx) {
       return paginaHtml(
         "Ward",
         landing(env.DISCORD_CLIENT_ID, await montarVitrine(env)),
-        { cheio: true }
+        { cheio: true, caminho: "/" }
       );
     }
 
@@ -749,13 +919,13 @@ async function rotear(request, env, ctx) {
 
     if (url.pathname === "/dashboard" && request.method === "GET") {
       const sessao = await pegarSessao(env, request);
-      if (!sessao) return paginaHtml("Entrar", precisaLogar());
+      if (!sessao) return paginaHtml("Entrar", precisaLogar(), { indexar: false });
       const [servidores, dono] = await Promise.all([
         servidoresDoUsuario(env, sessao),
         idDoDono(env),
       ]);
       const ehDono = Boolean(dono) && sessao.usuario_id === dono;
-      return paginaHtml("Seus servidores", listaServidores(servidores, env.DISCORD_CLIENT_ID, ehDono));
+      return paginaHtml("Seus servidores", listaServidores(servidores, env.DISCORD_CLIENT_ID, ehDono), { indexar: false });
     }
 
     // Botão "postar agora": usa o canal que está selecionado no formulário
@@ -765,7 +935,7 @@ async function rotear(request, env, ctx) {
     if (postarMatch && request.method === "POST") {
       const [, guildId, tipo] = postarMatch;
       const sessao = await pegarSessao(env, request);
-      if (!sessao) return paginaHtml("Entrar", precisaLogar());
+      if (!sessao) return paginaHtml("Entrar", precisaLogar(), { indexar: false });
 
       const servidores = await servidoresDoUsuario(env, sessao);
       if (!servidores.some((s) => s.id === guildId)) {
@@ -818,7 +988,7 @@ async function rotear(request, env, ctx) {
     if (noticiaMatch && request.method === "POST") {
       const guildId = noticiaMatch[1];
       const sessao = await pegarSessao(env, request);
-      if (!sessao) return paginaHtml("Entrar", precisaLogar());
+      if (!sessao) return paginaHtml("Entrar", precisaLogar(), { indexar: false });
 
       const servidores = await servidoresDoUsuario(env, sessao);
       if (!servidores.some((s) => s.id === guildId)) {
@@ -862,7 +1032,7 @@ async function rotear(request, env, ctx) {
     if (configMatch && (request.method === "GET" || request.method === "POST")) {
       const guildId = configMatch[1];
       const sessao = await pegarSessao(env, request);
-      if (!sessao) return paginaHtml("Entrar", precisaLogar());
+      if (!sessao) return paginaHtml("Entrar", precisaLogar(), { indexar: false });
 
       const servidores = await servidoresDoUsuario(env, sessao);
       const servidor = servidores.find((s) => s.id === guildId);
@@ -906,7 +1076,8 @@ async function rotear(request, env, ctx) {
       const status = url.searchParams.get("status");
       return paginaHtml(
         `Configurar — ${servidor.name}`,
-        formularioConfig(servidor, config, canais, salvo, status, noticias)
+        formularioConfig(servidor, config, canais, salvo, status, noticias),
+        { indexar: false }
       );
     }
 
