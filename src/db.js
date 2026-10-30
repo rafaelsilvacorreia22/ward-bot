@@ -17,6 +17,18 @@ export async function pegarConfig(env, guildId) {
       patch_last_error_at: null,
       news_last_error: null,
       news_last_error_at: null,
+      sale_enabled: 0,
+      sale_channel_id: null,
+      sale_last_error: null,
+      sale_last_error_at: null,
+      skins_enabled: 0,
+      skins_channel_id: null,
+      skins_last_error: null,
+      skins_last_error_at: null,
+      youtube_enabled: 0,
+      youtube_channel_id: null,
+      youtube_last_error: null,
+      youtube_last_error_at: null,
     }
   );
 }
@@ -25,13 +37,20 @@ export async function pegarConfig(env, guildId) {
 // com segurança), mas nada mais lê nem grava nelas desde que a rotação saiu.
 export async function salvarConfig(env, guildId, config) {
   await env.DB.prepare(
-    `INSERT INTO guild_config (guild_id, patch_enabled, patch_channel_id, news_enabled, news_channel_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO guild_config (guild_id, patch_enabled, patch_channel_id, news_enabled, news_channel_id,
+       sale_enabled, sale_channel_id, skins_enabled, skins_channel_id, youtube_enabled, youtube_channel_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(guild_id) DO UPDATE SET
        patch_enabled = excluded.patch_enabled,
        patch_channel_id = excluded.patch_channel_id,
        news_enabled = excluded.news_enabled,
        news_channel_id = excluded.news_channel_id,
+       sale_enabled = excluded.sale_enabled,
+       sale_channel_id = excluded.sale_channel_id,
+       skins_enabled = excluded.skins_enabled,
+       skins_channel_id = excluded.skins_channel_id,
+       youtube_enabled = excluded.youtube_enabled,
+       youtube_channel_id = excluded.youtube_channel_id,
        updated_at = datetime('now')`
   )
     .bind(
@@ -39,9 +58,32 @@ export async function salvarConfig(env, guildId, config) {
       config.patch_enabled ? 1 : 0,
       config.patch_channel_id,
       config.news_enabled ? 1 : 0,
-      config.news_channel_id
+      config.news_channel_id,
+      config.sale_enabled ? 1 : 0,
+      config.sale_channel_id,
+      config.skins_enabled ? 1 : 0,
+      config.skins_channel_id,
+      config.youtube_enabled ? 1 : 0,
+      config.youtube_channel_id
     )
     .run();
+}
+
+// Servidores com um dos avisos novos ligado e canal escolhido. A coluna vem
+// deste mapa fixo, nunca de fora (ver regra do topo do arquivo).
+const COLUNAS_AVISO = {
+  promocoes: ["sale_enabled", "sale_channel_id"],
+  skins: ["skins_enabled", "skins_channel_id"],
+  youtube: ["youtube_enabled", "youtube_channel_id"],
+};
+
+export async function listarComAvisoLigado(env, aviso) {
+  const colunas = COLUNAS_AVISO[aviso];
+  if (!colunas) throw new Error(`aviso desconhecido: ${aviso}`);
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM guild_config WHERE ${colunas[0]} = 1 AND ${colunas[1]} IS NOT NULL`
+  ).all();
+  return results.map((c) => ({ ...c, canal_do_aviso: c[colunas[1]] }));
 }
 
 export async function listarPatchAtivo(env) {
@@ -79,6 +121,9 @@ export async function marcarNoticiaPostada(env, guildId, url) {
 const COLUNAS_ERRO = {
   patch: { texto: "patch_last_error", quando: "patch_last_error_at" },
   noticias: { texto: "news_last_error", quando: "news_last_error_at" },
+  promocoes: { texto: "sale_last_error", quando: "sale_last_error_at" },
+  skins: { texto: "skins_last_error", quando: "skins_last_error_at" },
+  youtube: { texto: "youtube_last_error", quando: "youtube_last_error_at" },
 };
 
 function colunasDe(funcao) {

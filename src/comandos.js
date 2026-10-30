@@ -192,9 +192,11 @@ export const COMANDOS = {
 
   // Busca no OP.GG (ou no cache de 6h — ver buscarBuild). Adiado porque a
   // API deles leva uns 4 segundos quando a build não está em cache.
+  // Efêmera: a build é consulta pessoal, só quem digitou vê — não polui o
+  // canal com o embed grande.
   build: {
     adiar: true,
-    efemera: false,
+    efemera: true,
     async executar(env, interacao, origin) {
       const texto = opcao(interacao, "campeao");
       const modo = MODO_DO_SUBCOMANDO[subcomando(interacao)?.name] ?? "ranked";

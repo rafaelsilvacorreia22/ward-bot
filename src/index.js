@@ -47,6 +47,7 @@ import {
   pegarEstado,
   salvarEstado,
   contarCacheBuild,
+  listarComAvisoLigado,
 } from "./db.js";
 import {
   versaoAtual,
@@ -65,6 +66,15 @@ import {
   urlIconeRuna,
   urlIconeFeitico,
 } from "./builds.js";
+import {
+  buscarPromocoes,
+  assinaturaPromocoes,
+  embedPromocoes,
+  varrerSkinsNovas,
+  mensagensSkinsNovas,
+  buscarVideos,
+  mensagemVideo,
+} from "./avisos.js";
 import { traduzirParaPtBr } from "./traducao.js";
 import { buscarNoticias, embedDaNoticia } from "./noticias.js";
 
@@ -164,8 +174,9 @@ async function servidoresDoUsuario(env, sessao) {
 // Roda a ação em vários servidores sem estourar o limite de sub-requests do
 // Worker nem apanhar rate limit da Discord: um punhado por vez, e erro de um
 // servidor não derruba os outros.
-// `funcao` ("patch") diz em qual coluna gravar a falha. Este é o único
-// caminho por onde o alerta de patch posta, então registrar aqui cobre tudo.
+// `funcao` ("patch", "promocoes", "skins", "youtube") diz em qual coluna
+// gravar a falha. É o único caminho por onde esses avisos postam, então
+// registrar aqui cobre todos.
 async function paraCadaServidor(configs, env, acao, funcao, tamanhoLote = 8) {
   for (let i = 0; i < configs.length; i += tamanhoLote) {
     const lote = configs.slice(i, i + tamanhoLote);
@@ -335,6 +346,102 @@ async function sincronizarEstado(env) {
   return { patch: versao };
 }
 
+// ---------- promoções, skins novas e YouTube ----------
+//
+// Os três seguem a regra do patch: o "já anunciado" é global, e na primeira
+// vez que o bot vê a fonte ele só memoriza, sem postar — senão o deploy
+// anunciaria a promoção que já está no ar há dias ou os vídeos antigos do
+// canal em todo servidor. `apenasGuild` (teste) posta só ali e não grava.
+
+async function checarPromocoes(env, apenasGuild) {
+  const lista = await buscarPromocoes(env);
+  if (!lista.length) return { vazia: true };
+  const assinatura = assinaturaPromocoes(lista);
+  // Vitrine da inicial: as quatro com maior desconto.
+  await salvarEstado(
+    env,
+    "vitrine_promocoes",
+    JSON.stringify(lista.slice(0, 4).map((s) => ({ nome: s.nome, img: s.arquivoCampeao, skinId: s.skinId, desconto: s.desconto })))
+  ).catch(() => {});
+
+  const anterior = await pegarEstado(env, "promocoes_assinatura");
+  if (!apenasGuild && (!anterior || anterior === assinatura)) {
+    if (!anterior) await salvarEstado(env, "promocoes_assinatura", assinatura);
+    return { mudou: false, primeiraVez: !anterior };
+  }
+
+  const todos = await listarComAvisoLigado(env, "promocoes");
+  const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
+  const corpo = { embeds: [embedPromocoes(lista)] };
+  await paraCadaServidor(alvos, env, (c) => enviarMensagem(env, c.canal_do_aviso, corpo), "promocoes");
+  if (!apenasGuild) await salvarEstado(env, "promocoes_assinatura", assinatura);
+  return { mudou: true, skins: lista.length, servidores: alvos.length };
+}
+
+// A descoberta das skins novas é feita aos poucos pelo cron de 2 minutos
+// (varrerSkinsNovas); aqui só sai o que ficou na fila ao fim da varredura.
+async function postarSkinsNovas(env) {
+  let fila = [];
+  try {
+    fila = JSON.parse((await pegarEstado(env, "skins_para_postar")) || "[]");
+  } catch {}
+  if (!fila.length) return { nada: true };
+
+  await salvarEstado(env, "vitrine_skins", JSON.stringify(fila.slice(0, 4))).catch(() => {});
+  const alvos = await listarComAvisoLigado(env, "skins");
+  const mensagens = mensagensSkinsNovas(fila);
+  await paraCadaServidor(
+    alvos,
+    env,
+    async (c) => {
+      for (const m of mensagens) await enviarMensagem(env, c.canal_do_aviso, m);
+    },
+    "skins"
+  );
+  // Esvazia antes de qualquer outra coisa poder falhar: repetir o anúncio em
+  // todo servidor é pior do que perder um.
+  await salvarEstado(env, "skins_para_postar", "[]");
+  return { skins: fila.length, servidores: alvos.length };
+}
+
+const MAXIMO_VIDEOS_POR_RODADA = 3;
+
+async function checarYoutube(env, apenasGuild) {
+  const videos = await buscarVideos(env);
+  await salvarEstado(env, "vitrine_youtube", JSON.stringify(videos[0])).catch(() => {});
+
+  let vistos = null;
+  try {
+    vistos = JSON.parse((await pegarEstado(env, "youtube_vistos")) ?? "null");
+  } catch {}
+  if (!Array.isArray(vistos)) {
+    await salvarEstado(env, "youtube_vistos", JSON.stringify(videos.map((v) => v.id)));
+    return { primeiraVez: true };
+  }
+
+  // Do mais antigo para o mais novo, para o canal ficar cronológico.
+  const novos = apenasGuild
+    ? videos.slice(0, 1)
+    : videos.filter((v) => !vistos.includes(v.id)).slice(0, MAXIMO_VIDEOS_POR_RODADA).reverse();
+  if (!novos.length) return { novos: 0 };
+
+  const todos = await listarComAvisoLigado(env, "youtube");
+  const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
+  await paraCadaServidor(
+    alvos,
+    env,
+    async (c) => {
+      for (const v of novos) await enviarMensagem(env, c.canal_do_aviso, mensagemVideo(v));
+    },
+    "youtube"
+  );
+  if (!apenasGuild) {
+    const atualizados = [...new Set([...videos.map((v) => v.id), ...vistos])].slice(0, 50);
+    await salvarEstado(env, "youtube_vistos", JSON.stringify(atualizados));
+  }
+  return { novos: novos.length, servidores: alvos.length };
+}
+
 // Dados que a página inicial usa como vitrine (patch atual, a build do dia e
 // últimas notícias). Vem tudo do que o cron já guardou no banco: a inicial
 // nunca chama a Riot nem o site do LoL. É decoração — se faltar, a página sai
@@ -349,13 +456,26 @@ async function montarVitrine(env) {
   };
 
   try {
-    const [patch, noticias, build] = await Promise.all([
+    const [patch, noticias, build, promocoes, skins, video] = await Promise.all([
       pegarEstado(env, "last_patch_version"),
       pegarEstado(env, "vitrine_noticias"),
       pegarEstado(env, "vitrine_build"),
+      pegarEstado(env, "vitrine_promocoes"),
+      pegarEstado(env, "vitrine_skins"),
+      pegarEstado(env, "vitrine_youtube"),
     ]);
-    const lista = ler(noticias, []);
-    return { patch, noticias: Array.isArray(lista) ? lista : [], build: ler(build, null) };
+    const comoLista = (texto) => {
+      const valor = ler(texto, []);
+      return Array.isArray(valor) ? valor : [];
+    };
+    return {
+      patch,
+      noticias: comoLista(noticias),
+      build: ler(build, null),
+      promocoes: comoLista(promocoes),
+      skins: comoLista(skins),
+      video: ler(video, null),
+    };
   } catch (err) {
     console.log("Não consegui montar a vitrine da inicial:", err.message);
     return null;
@@ -564,7 +684,9 @@ async function rotear(request, env, ctx) {
       }
       const patch = await checarPatch(env, apenasGuild).catch((err) => ({ erro: err.message }));
       const noticias = await checarNoticias(env, apenasGuild).catch((err) => ({ erro: err.message }));
-      return json({ servidor: apenasGuild, patch, noticias });
+      const promocoes = await checarPromocoes(env, apenasGuild).catch((err) => ({ erro: err.message }));
+      const youtube = await checarYoutube(env, apenasGuild).catch((err) => ({ erro: err.message }));
+      return json({ servidor: apenasGuild, patch, noticias, promocoes, youtube });
     }
 
     // Lista de campeões com link para a build de cada um.
@@ -638,7 +760,7 @@ async function rotear(request, env, ctx) {
     // Botão "postar agora": usa o canal que está selecionado no formulário
     // na hora (mesmo que ainda não tenha sido salvo), posta uma vez e volta
     // pra página de config com um aviso — não mexe no estado do cron.
-    const postarMatch = url.pathname.match(/^\/dashboard\/(\d+)\/postar-(patch)$/);
+    const postarMatch = url.pathname.match(/^\/dashboard\/(\d+)\/postar-(patch|promocoes|youtube)$/);
     if (postarMatch && request.method === "POST") {
       const [, guildId, tipo] = postarMatch;
       const sessao = await pegarSessao(env, request);
@@ -650,15 +772,23 @@ async function rotear(request, env, ctx) {
       }
 
       const dados = await request.formData();
-      const canalId = dados.get("patch_channel_id");
+      const campoCanal = { patch: "patch_channel_id", promocoes: "sale_channel_id", youtube: "youtube_channel_id" };
+      const canalId = dados.get(campoCanal[tipo]);
 
       let status = tipo;
       if (!canalId) {
         status = "sem_canal";
       } else {
         try {
-          const { corpo } = await construirEmbedPatch(env);
-          await enviarMensagem(env, canalId, corpo);
+          if (tipo === "patch") {
+            const { corpo } = await construirEmbedPatch(env);
+            await enviarMensagem(env, canalId, corpo);
+          } else if (tipo === "promocoes") {
+            await enviarMensagem(env, canalId, { embeds: [embedPromocoes(await buscarPromocoes(env))] });
+          } else {
+            const [ultimo] = await buscarVideos(env);
+            await enviarMensagem(env, canalId, mensagemVideo(ultimo));
+          }
         } catch (err) {
           console.log(`Falha ao postar ${tipo} manualmente:`, err.message);
           status = classificarFalha(err);
@@ -747,6 +877,12 @@ async function rotear(request, env, ctx) {
           patch_channel_id: dados.get("patch_channel_id") || null,
           news_enabled: dados.get("news_enabled") === "on",
           news_channel_id: dados.get("news_channel_id") || null,
+          sale_enabled: dados.get("sale_enabled") === "on",
+          sale_channel_id: dados.get("sale_channel_id") || null,
+          skins_enabled: dados.get("skins_enabled") === "on",
+          skins_channel_id: dados.get("skins_channel_id") || null,
+          youtube_enabled: dados.get("youtube_enabled") === "on",
+          youtube_channel_id: dados.get("youtube_channel_id") || null,
         });
         salvo = true;
         ctx.waitUntil(
@@ -818,6 +954,9 @@ export default {
         (async () => {
           const emojis = await sincronizarEmojis(env).catch((err) => ({ erro: err.message }));
           if (!emojis.completo) console.log("emojis:", JSON.stringify(emojis));
+          // Só trabalha quando sai patch novo (ver varrerSkinsNovas).
+          const skins = await varrerSkinsNovas(env).catch((err) => ({ erro: err.message }));
+          if (!skins.completo) console.log("skins:", JSON.stringify(skins));
         })()
       );
       return;
@@ -837,9 +976,17 @@ export default {
         const noticias = vezDasNoticias
           ? await checarNoticias(env).catch((err) => ({ erro: err.message }))
           : { pulado: true };
+        // A promoção da loja gira uma vez por semana: checar de hora em hora
+        // basta. Os vídeos saem a qualquer hora, então vão a cada rodada.
+        const promocoes =
+          minuto < 15
+            ? await checarPromocoes(env).catch((err) => ({ erro: err.message }))
+            : { pulado: true };
+        const skins = await postarSkinsNovas(env).catch((err) => ({ erro: err.message }));
+        const youtube = await checarYoutube(env).catch((err) => ({ erro: err.message }));
         const comandos = await registrarComandosSeMudaram(env).catch((err) => ({ erro: err.message }));
         const vitrine = await atualizarVitrineBuild(env).catch((err) => ({ erro: err.message }));
-        console.log("cron:", JSON.stringify({ patch, noticias, comandos, vitrine }));
+        console.log("cron:", JSON.stringify({ patch, noticias, promocoes, skins, youtube, comandos, vitrine }));
       })()
     );
   },

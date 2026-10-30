@@ -47,7 +47,11 @@ const BRASAS = [
   )
   .join("");
 
-const ICONE_LUA = `<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
+// Logo do Discord (o "Clyde"), usado no título da inicial no lugar da
+// palavra. O role/aria-label mantém "Discord" para leitor de tela e busca.
+const LOGO_DISCORD = `<svg class="logo-discord" viewBox="0 0 127.14 96.36" role="img" aria-label="Discord"><defs><linearGradient id="grad-logo-discord" x1="0" y1="0" x2="0" y2="1"><stop class="topo" offset="0"/><stop class="base" offset="1"/></linearGradient></defs><path fill="url(#grad-logo-discord)" d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>`;
+
+const ICONE_LUA =`<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
 const ICONE_SOL = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>`;
 
 // Duas famílias, uma de cada lado da mistura:
@@ -411,12 +415,14 @@ const ESTILO = `
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .heroi .ornamento { margin-bottom: 22px; }
-  /* "Discord" em destaque: o verde do tema puxado para o blurple, para o
-     olho bater primeiro em onde as coisas acontecem. */
-  .heroi h1 .destaque-discord {
-    background: linear-gradient(176deg, #c9d0ff 0%, #8d98ff 50%, #5865f2 100%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+  /* O logo do Discord no lugar da palavra, no mesmo latão do título. A
+     altura acompanha a das letras (em), então escala junto com o h1. */
+  .logo-discord {
+    display: inline-block; height: .78em; width: auto;
+    vertical-align: -.04em; margin-left: .06em;
   }
+  .logo-discord .topo { stop-color: var(--latao-claro); }
+  .logo-discord .base { stop-color: var(--latao); }
   .selos {
     list-style: none; padding: 0; margin: 0 auto 30px;
     display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
@@ -508,6 +514,10 @@ const ESTILO = `
   .valor-vivo small { display: block; font-family: "Spiegel", sans-serif; font-weight: 400; font-size: .8rem; letter-spacing: 0; text-transform: none; color: var(--texto-fraco); margin-top: 5px; }
   .campeoes-vivo { display: flex; flex-wrap: wrap; gap: 4px; }
   .campeoes-vivo img { width: 34px; height: 34px; border: 1px solid var(--latao-escuro); background: var(--fundo); }
+  .campeoes-vivo img.quadro-skin { width: 48px; height: 48px; object-fit: cover; }
+  .video-vivo { display: flex; flex-direction: column; gap: 7px; text-decoration: none; color: var(--texto); font-size: .86rem; line-height: 1.35; }
+  .video-vivo img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; border: 1px solid var(--latao-escuro); }
+  .video-vivo:hover img { border-color: var(--latao); }
 
   /* ---------- prévia da mensagem no Discord ---------- */
   .previa { max-width: 620px; margin: 0 auto; border: 1px solid var(--linha); background: #313338; text-align: left; }
@@ -686,6 +696,8 @@ const ESTILO = `
   .com-revelar .escalonar.visivel > :nth-child(2) { transition-delay: .11s; }
   .com-revelar .escalonar.visivel > :nth-child(3) { transition-delay: .22s; }
   .com-revelar .escalonar.visivel > :nth-child(4) { transition-delay: .33s; }
+  .com-revelar .escalonar.visivel > :nth-child(5) { transition-delay: .44s; }
+  .com-revelar .escalonar.visivel > :nth-child(6) { transition-delay: .55s; }
 
   @view-transition { navigation: auto; }
   .topo { view-transition-name: topo; }
@@ -840,10 +852,12 @@ export function paginaHtml(titulo, corpo, opcoes = {}) {
   });
 }
 
-const RODAPE_LEGAL = `Ward isn't endorsed by Riot Games and doesn't reflect the
-views or opinions of Riot Games or anyone officially involved in producing or
-managing Riot Games properties. Riot Games and all associated properties are
-trademarks or registered trademarks of Riot Games, Inc.`;
+// Aviso exigido pela política de conteúdo de fãs da Riot, traduzido.
+const RODAPE_LEGAL = `O Ward não é endossado pela Riot Games e não reflete as
+visões ou opiniões da Riot Games nem de ninguém oficialmente envolvido na
+produção ou gestão das propriedades da Riot Games. Riot Games e todas as
+propriedades associadas são marcas comerciais ou marcas registradas da Riot
+Games, Inc.`;
 
 function rodape() {
   return `
@@ -890,6 +904,13 @@ export function landing(clientId, vitrine) {
       : "";
 
   const destaque = noticias[0];
+  const promocoes = Array.isArray(vitrine?.promocoes) ? vitrine.promocoes : [];
+  const skinsNovas = Array.isArray(vitrine?.skins) ? vitrine.skins : [];
+  const video = vitrine?.video ?? null;
+  // Recorte quadrado da arte da skin ("tiles" no Data Dragon).
+  const quadroSkin = (s, titulo) =>
+    `<img class="quadro-skin" src="${DDRAGON}/cdn/img/champion/tiles/${escapar(s.img)}_${Number(s.skinId) % 1000}.jpg"` +
+    ` alt="${escapar(titulo)}" title="${escapar(titulo)}" width="48" height="48" loading="lazy">`;
 
   const funcao = (num, titulo, texto, vivo) => `
         <article class="funcao">
@@ -908,13 +929,13 @@ export function landing(clientId, vitrine) {
         <p class="sobrancelha">Bot de Discord · League of Legends</p>
         <!-- O espaço antes de cada <br> é necessário: no celular o <br> some
              (display:none) e sem ele as palavras encostariam uma na outra. -->
-        <h1>Tudo do LoL, <br><span class="destaque-discord">direto no seu Discord</span></h1>
+        <h1>Fique por dentro do LoL, <br>direto no seu ${LOGO_DISCORD}</h1>
         <div class="ornamento"><i></i></div>
-        <!-- As três funções como selos: deixa claro, logo de cara, que tudo
-             roda dentro do servidor, sem abrir outro site. -->
+        <!-- As funções como selos: deixa claro, logo de cara, que tudo roda
+             dentro do servidor, sem abrir outro site. -->
         <ul class="selos">
-          <li><span class="ponto"></span>Patch novo no canal</li>
-          <li><span class="ponto"></span>Notícias oficiais</li>
+          <li><span class="ponto"></span>Patch e notícias</li>
+          <li><span class="ponto"></span>Skins novas e em promoção</li>
           <li><span class="ponto"></span><code>/build</code> do meta</li>
         </ul>
         <div class="acoes">
@@ -932,7 +953,7 @@ export function landing(clientId, vitrine) {
     <section class="faixa escura" id="funcoes">
       <div class="limite">
         <div class="titulo-secao revelar">
-          <h2>Três funções, zero esforço</h2>
+          <h2>Seis funções, zero esforço</h2>
           <div class="ornamento"><i></i></div>
         </div>
         <div class="funcoes escalonar">
@@ -962,6 +983,51 @@ export function landing(clientId, vitrine) {
           )}
           ${funcao(
             "03",
+            "Skins em promoção",
+            `Toda semana, quando a loja troca as promoções, o Ward posta as skins
+             com desconto, o preço cheio, o preço novo e até quando vale.`,
+            aoVivo(
+              "Em promoção agora",
+              promocoes.length
+                ? `<div class="campeoes-vivo">${promocoes
+                    .filter((s) => s.img)
+                    .map((s) => quadroSkin(s, `${s.nome} · -${s.desconto}%`))
+                    .join("")}</div>`
+                : ""
+            )
+          )}
+          ${funcao(
+            "04",
+            "Skins novas",
+            `Quando um patch traz skins novas para o jogo, o Ward avisa no canal
+             com a arte de cada uma.`,
+            aoVivo(
+              "Últimas que chegaram",
+              skinsNovas.length
+                ? `<div class="campeoes-vivo">${skinsNovas
+                    .filter((s) => s.arquivoCampeao)
+                    .map((s) => quadroSkin({ img: s.arquivoCampeao, skinId: s.skinId }, s.nome))
+                    .join("")}</div>`
+                : ""
+            )
+          )}
+          ${funcao(
+            "05",
+            "Vídeos do YouTube",
+            `Trailer, cinemática ou clipe novo no canal oficial do League of
+             Legends? O vídeo chega no canal, pronto para assistir no Discord.`,
+            aoVivo(
+              "Último vídeo",
+              video?.id
+                ? `<a class="video-vivo" href="https://www.youtube.com/watch?v=${escapar(video.id)}" target="_blank" rel="noopener">
+                     <img src="https://i.ytimg.com/vi/${escapar(video.id)}/mqdefault.jpg" alt="" width="320" height="180" loading="lazy">
+                     <span>${escapar(video.titulo ?? "")}</span>
+                   </a>`
+                : ""
+            )
+          )}
+          ${funcao(
+            "06",
             "Build do meta",
             `Digite <code>/build</code>, escolha o modo e o campeão: itens, runas, feitiços e
              ordem de habilidades que mais ganham, a partir de dezenas de
@@ -1033,8 +1099,7 @@ export function landing(clientId, vitrine) {
         entre no painel com sua conta do Discord e escolha o canal de cada aviso.
         O <code>/build</code> funciona assim que o bot entra, sem configurar nada.</p>
         <div class="acoes">
-          <a class="botao destaque" href="${convite(clientId)}">Adicionar ao Discord</a>
-          <a class="botao vazado" href="/build">Ver as builds</a>
+          <a class="botao destaque" href="${convite(clientId)}">Adicionar ao seu servidor</a>
         </div>
       </div>
     </section>
@@ -1084,6 +1149,8 @@ export function listaServidores(servidores, clientId, ehDono) {
 
 const MENSAGENS_STATUS = {
   patch: "✓ Patch postado no canal!",
+  promocoes: "✓ Promoções postadas no canal!",
+  youtube: "✓ Último vídeo postado no canal!",
   sem_canal: "Escolhe um canal antes de postar.",
   erro: "Não consegui postar agora — tenta de novo em instantes.",
   noticia: "✓ Notícia postada no canal!",
@@ -1137,6 +1204,9 @@ function falhasDe(config) {
   return [
     ["Patch", config?.patch_last_error, config?.patch_last_error_at],
     ["Notícias", config?.news_last_error, config?.news_last_error_at],
+    ["Promoções", config?.sale_last_error, config?.sale_last_error_at],
+    ["Skins novas", config?.skins_last_error, config?.skins_last_error_at],
+    ["YouTube", config?.youtube_last_error, config?.youtube_last_error_at],
   ].filter(([, erro]) => erro);
 }
 
@@ -1213,7 +1283,8 @@ export function paginaPrivacidade() {
       <ul>
         <li><strong>Discord</strong>: para entrar no painel e enviar as mensagens;</li>
         <li><strong>Riot Games (Data Dragon)</strong>: versão do jogo, nomes e ícones;</li>
-        <li><strong>OP.GG</strong>: estatísticas de build;</li>
+        <li><strong>OP.GG</strong>: estatísticas de build e skins em promoção na loja;</li>
+        <li><strong>YouTube</strong>: vídeos novos do canal oficial do League of Legends;</li>
         <li><strong>leagueoflegends.com</strong>: resumo das notas do patch e as notícias oficiais em português;</li>
         <li><strong>Cloudflare</strong>: hospedagem, banco de dados e tradução do resumo do patch.</li>
       </ul>
@@ -1301,7 +1372,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
   const membros = servidores.reduce((soma, g) => soma + (g.approximate_member_count ?? 0), 0);
   const ativos = servidores.filter((g) => {
     const c = configPorGuild.get(g.id);
-    return c && (c.patch_enabled || c.news_enabled);
+    return c && (c.patch_enabled || c.news_enabled || c.sale_enabled || c.skins_enabled || c.youtube_enabled);
   }).length;
   const totalComandos = uso.reduce((soma, u) => soma + u.total, 0);
   const comFalha = servidores.filter((g) => falhasDe(configPorGuild.get(g.id)).length > 0).length;
@@ -1353,6 +1424,9 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
         ${falhas}
         <p>Patch: ${aviso(c?.patch_enabled, c?.patch_channel_id, null)}</p>
         <p>Notícias: ${aviso(c?.news_enabled, c?.news_channel_id, null)}</p>
+        <p>Promoções: ${aviso(c?.sale_enabled, c?.sale_channel_id, null)}</p>
+        <p>Skins novas: ${aviso(c?.skins_enabled, c?.skins_channel_id, null)}</p>
+        <p>YouTube: ${aviso(c?.youtube_enabled, c?.youtube_channel_id, null)}</p>
         <p>${listaComandos}</p>
       </div>`;
     })
@@ -1478,6 +1552,41 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
         <p class="fraco">CBLOL e outros esports, skins, atualizações do jogo e
         comunicados, em português.</p>
         ${previaNoticias(servidor, noticias)}
+      </div>
+      <div class="cartao">
+        <h2>Skins em promoção</h2>
+        ${avisoDeFalha(config.sale_last_error, config.sale_last_error_at)}
+        <label class="interruptor">
+          <input type="checkbox" name="sale_enabled" ${config.sale_enabled ? "checked" : ""}>
+          Avisar quando entrar promoção nova na loja
+        </label>
+        <label class="campo"><span>Canal</span><select name="sale_channel_id">${opcoesCanais(config.sale_channel_id)}</select></label>
+        <p class="fraco">A loja troca as skins em promoção uma vez por semana. O aviso traz cada
+        skin com o preço cheio, o preço com desconto e até quando vale.</p>
+        <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-promocoes">Postar promoções agora</button>
+      </div>
+      <div class="cartao">
+        <h2>Skins novas</h2>
+        ${avisoDeFalha(config.skins_last_error, config.skins_last_error_at)}
+        <label class="interruptor">
+          <input type="checkbox" name="skins_enabled" ${config.skins_enabled ? "checked" : ""}>
+          Avisar quando chegarem skins novas ao jogo
+        </label>
+        <label class="campo"><span>Canal</span><select name="skins_channel_id">${opcoesCanais(config.skins_channel_id)}</select></label>
+        <p class="fraco">Sai junto com o patch em que as skins entram no jogo, com a arte de cada uma.</p>
+      </div>
+      <div class="cartao">
+        <h2>Vídeos do YouTube</h2>
+        ${avisoDeFalha(config.youtube_last_error, config.youtube_last_error_at)}
+        <label class="interruptor">
+          <input type="checkbox" name="youtube_enabled" ${config.youtube_enabled ? "checked" : ""}>
+          Avisar os vídeos novos do canal oficial do LoL
+        </label>
+        <label class="campo"><span>Canal</span><select name="youtube_channel_id">${opcoesCanais(config.youtube_channel_id)}</select></label>
+        <p class="fraco">Trailers, cinemáticas, clipes e lançamentos do
+        <a href="https://www.youtube.com/@leagueoflegends/videos" target="_blank" rel="noopener">canal oficial</a>,
+        com o vídeo direto no Discord.</p>
+        <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-youtube">Postar último vídeo agora</button>
       </div>
       <div class="cartao">
         <h2>Build do meta</h2>

@@ -220,7 +220,9 @@ const CAMPOS_PEDIDOS = [
   "data.skill_masteries.{ids[],play,win,pick_rate}",
 ];
 
-async function chamarOpgg(argumentos) {
+// Chama uma ferramenta da API do OP.GG e devolve o campo "data" já lido.
+// Também usada pelas promoções de skins (ver avisos.js).
+export async function chamarOpgg(argumentos, ferramenta = "lol_get_champion_analysis") {
   const res = await fetch(OPGG, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
@@ -228,7 +230,7 @@ async function chamarOpgg(argumentos) {
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
-      params: { name: "lol_get_champion_analysis", arguments: argumentos },
+      params: { name: ferramenta, arguments: argumentos },
     }),
   });
   const bruto = await res.text();
