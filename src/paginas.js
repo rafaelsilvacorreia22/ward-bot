@@ -886,7 +886,7 @@ export function landing(clientId, vitrine) {
     `<img src="${DDRAGON}/cdn/${escapar(versaoIcones)}/img/item/${Number(id)}.png" alt="" width="${tamanho}" height="${tamanho}" loading="lazy">`;
 
   const itensPrevia = build.itens.map((id) => iconeItem(id, 38)).join("");
-  const tituloPrevia = `${build.campeao.nome}${build.rota ? ` · ${NOMES_ROTA[build.rota] ?? ""}` : ""} · Ranqueada Solo/Duo`;
+  const tituloPrevia = `${build.campeao.nome}${build.rota ? ` · ${NOMES_ROTA[build.rota] ?? ""}` : ""} · Partida normal`;
   const rodapePrevia = buildReal
     ? `${porcentagem(buildReal.taxa)} de vitória em ${buildReal.jogos.toLocaleString("pt-BR")} partidas · dados OP.GG.`
     : "Itens, runas, feitiços e habilidades de quem mais ganha no BR.";
@@ -1029,11 +1029,10 @@ export function landing(clientId, vitrine) {
           ${funcao(
             "06",
             "Build do meta",
-            `Digite <code>/build</code>, escolha o modo e o campeão: itens, runas, feitiços e
-             ordem de habilidades que mais ganham, a partir de dezenas de
-             milhares de partidas por campeão (dados do OP.GG), na ranqueada
-             ou no ARAM. Atualiza sozinho
-             conforme o meta muda.`,
+            `Digite <code>/build</code> e o campeão (ou <code>/build-aram</code> para
+             o ARAM): itens, runas, feitiços e ordem de habilidades que mais
+             ganham, a partir de dezenas de milhares de partidas por campeão
+             (dados do OP.GG). Atualiza sozinho conforme o meta muda.`,
             aoVivo(
               `Build do dia · ${buildReal ? escapar(buildReal.campeao.nome) : ""}`,
               buildReal
@@ -1064,7 +1063,7 @@ export function landing(clientId, vitrine) {
             <img class="previa-avatar" src="/favicon.webp" alt="" width="38" height="38">
             <div>
               <p class="previa-nome">Ward <span class="previa-tag">BOT</span><span class="previa-hora">hoje às 09:00</span></p>
-              <p class="previa-comando">usou <code>/build ranqueada ${escapar(build.campeao.nome)}</code></p>
+              <p class="previa-comando">usou <code>/build ${escapar(build.campeao.nome)}</code></p>
               <div class="previa-embed">
                 <strong>${escapar(tituloPrevia)}</strong>
                 <p class="previa-rotulo">Build principal + botas</p>
@@ -1086,6 +1085,7 @@ export function landing(clientId, vitrine) {
         <div class="comandos escalonar">
           <div class="comando"><code>/patch</code><span>o patch atual</span></div>
           <div class="comando"><code>/build</code><span>a build do meta de um campeão</span></div>
+          <div class="comando"><code>/build-aram</code><span>a build do meta no ARAM</span></div>
           <div class="comando"><code>/dashboard</code><span>o link de configuração</span></div>
         </div>
       </div>
@@ -1591,7 +1591,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
       <div class="cartao">
         <h2>Build do meta</h2>
         <p>Não precisa configurar: qualquer pessoa do servidor pode usar
-        <code>/build</code> em qualquer canal onde o Ward consiga responder.</p>
+        <code>/build</code> (ou <code>/build-aram</code>) em qualquer canal onde o Ward consiga responder.</p>
         <p class="fraco">Também dá para ver pelo site: <a href="/build">lista de builds</a>.</p>
       </div>
       <button class="botao" type="submit">Salvar</button>
@@ -1678,7 +1678,7 @@ export function paginaBuild({ campeao, build, dados, versao, modo }) {
         }</p>
       </div>
     </div>
-    <div class="abas">${abaModo("ranked", "Ranqueada Solo/Duo")}${abaModo("flex", "Flex")}${abaModo("aram", "ARAM")}</div>
+    <div class="abas">${abaModo("normal", "Partida normal")}${abaModo("aram", "ARAM")}</div>
     ${abasRota ? `<div class="abas">${abasRota}</div>` : ""}
   `;
 

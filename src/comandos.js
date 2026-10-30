@@ -25,38 +25,35 @@ const ROTA = {
 
 export const DEFINICOES = [
   { name: "patch", description: "Mostra a versão mais recente do League of Legends" },
+  // Dois comandos, e não um com subcomandos: o Discord não deixa o mesmo
+  // comando ter campos diretos (/build Fizz) e subcomandos (/build aram). O
+  // ARAM não tem rota, então fica num comando só seu, sem esse campo.
   {
     name: "build",
-    description: "A build que mais ganha no meta atual para um campeão",
-    // Um subcomando por modo: o Discord não esconde opção dinamicamente, e o
-    // ARAM não tem rota — então ele é um subcomando sem a opção "rota".
-    options: [
-      { type: 1, name: "ranqueada", description: "Build na Ranqueada Solo/Duo", options: [CAMPEAO, ROTA] },
-      { type: 1, name: "flex", description: "Build na Ranqueada Flex", options: [CAMPEAO, ROTA] },
-      { type: 1, name: "aram", description: "Build no ARAM", options: [CAMPEAO] },
-    ],
+    description: "A build que mais ganha no meta atual (partida normal)",
+    options: [CAMPEAO, ROTA],
+  },
+  {
+    name: "build-aram",
+    description: "A build que mais ganha no meta atual do ARAM",
+    options: [CAMPEAO],
   },
   { name: "dashboard", description: "Link pra configurar o Ward neste servidor" },
 ];
 
-// Modo de cada subcomando do /build.
-const MODO_DO_SUBCOMANDO = { ranqueada: "ranked", flex: "flex", aram: "aram" };
-
-// As opções chegam aninhadas dentro do subcomando: options[0] = { type: 1,
-// name: "aram", options: [{ name: "campeao", value: "Fizz" }] }.
-//
-// O Discord do usuário pode demorar até 1h para trocar a definição antiga
-// (opções soltas: campeao, modo, rota) pela nova. Nesse meio-tempo a
-// interação chega no formato antigo — sem tratar isso, "campeao" vinha
-// undefined. Então o formato antigo é lido como se fosse um subcomando.
-const SUBCOMANDO_DO_MODO_ANTIGO = { ranked: "ranqueada", flex: "flex", aram: "aram", 450: "aram" };
-const subcomando = (interacao) => {
+// As opções do comando. O Discord de cada pessoa pode levar até 1h para
+// trocar uma definição antiga pela nova, então ainda chegam os formatos
+// anteriores do /build — com subcomando (ranqueada/flex/aram) ou com o
+// campo "modo" — e são lidos aqui como se fossem o atual.
+const camposDe = (interacao) => {
   const opcoes = interacao.data.options ?? [];
-  if (opcoes[0]?.type === 1) return opcoes[0];
-  const modo = opcoes.find((o) => o.name === "modo")?.value;
-  return { name: SUBCOMANDO_DO_MODO_ANTIGO[modo] ?? "ranqueada", options: opcoes };
+  return opcoes[0]?.type === 1 ? opcoes[0].options ?? [] : opcoes;
 };
-const opcao = (interacao, nome) => subcomando(interacao)?.options?.find((o) => o.name === nome)?.value;
+const opcao = (interacao, nome) => camposDe(interacao).find((o) => o.name === nome)?.value;
+const ehAram = (interacao) =>
+  interacao.data.name === "build-aram" ||
+  interacao.data.options?.[0]?.name === "aram" ||
+  ["aram", "450"].includes(String(opcao(interacao, "modo")));
 
 export const porcentagem = (taxa) => `${(taxa * 100).toFixed(1).replace(".", ",")}%`;
 const milhar = (n) => n.toLocaleString("pt-BR");
@@ -199,7 +196,7 @@ export const COMANDOS = {
     efemera: true,
     async executar(env, interacao, origin) {
       const texto = opcao(interacao, "campeao");
-      const modo = MODO_DO_SUBCOMANDO[subcomando(interacao)?.name] ?? "ranked";
+      const modo = ehAram(interacao) ? "aram" : "normal";
       const rota = modo === "aram" ? undefined : opcao(interacao, "rota");
 
       const campeao = await acharCampeao(env, texto);
@@ -243,7 +240,7 @@ export const COMANDOS = {
     // Sugestões enquanto a pessoa digita. Tem que responder em menos de 3s,
     // então só usa o roster já em cache (memória ou banco).
     async autocompletar(env, interacao) {
-      const digitado = normalizarNome(subcomando(interacao)?.options?.find((o) => o.focused)?.value);
+      const digitado = normalizarNome(camposDe(interacao).find((o) => o.focused)?.value);
       const campeoes = await todosOsCampeoes(env, await versaoAtual());
       const sugestoes = campeoes
         .filter((c) => !digitado || normalizarNome(c.nome).includes(digitado))
@@ -272,3 +269,7 @@ export const COMANDOS = {
     },
   },
 };
+
+// O /build-aram é o mesmo comando: quem decide o modo é o nome dele (ver
+// ehAram).
+COMANDOS["build-aram"] = COMANDOS.build;

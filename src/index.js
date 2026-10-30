@@ -497,7 +497,7 @@ async function atualizarVitrineBuild(env) {
   for (let i = 0; i < VITRINE_CAMPEOES.length; i++) {
     const campeao = await acharCampeao(env, VITRINE_CAMPEOES[(dia + i) % VITRINE_CAMPEOES.length]);
     if (!campeao) continue;
-    const build = await buscarBuild(env, campeao, "ranked").catch(() => null);
+    const build = await buscarBuild(env, campeao, "normal").catch(() => null);
     if (!build?.nucleo) continue;
     await salvarEstado(
       env,
@@ -702,7 +702,8 @@ async function rotear(request, env, ctx) {
     if (buildMatch && request.method === "GET") {
       const campeao = await acharCampeao(env, decodeURIComponent(buildMatch[1]));
       if (!campeao) return new Response("Campeão não encontrado.", { status: 404 });
-      const modo = MODOS[url.searchParams.get("modo")] ? url.searchParams.get("modo") : "ranked";
+      // Links antigos (?modo=ranked, ?modo=flex) caem na partida normal.
+      const modo = url.searchParams.get("modo") === "aram" ? "aram" : "normal";
       const rota = ROTAS[url.searchParams.get("rota")] ? url.searchParams.get("rota") : undefined;
       const versao = await versaoAtual();
       const [build, dados] = await Promise.all([

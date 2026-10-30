@@ -16,11 +16,14 @@ import { pegarEstado, salvarEstado, limparCacheAntigo, pegarCacheBuild, salvarCa
 const DDRAGON = "https://ddragon.leagueoflegends.com";
 const OPGG = "https://mcp-api.op.gg/mcp";
 
-// As chaves são os game_mode do OP.GG.
+// Dois modos para quem usa: partida normal (Summoner's Rift) e ARAM. A
+// ranqueada solo, a flex e a normal usam a mesma build no mesmo mapa, então
+// tudo que é Summoner's Rift vira "partida normal" — e os números vêm da
+// ranqueada do OP.GG, que é onde está a amostra grande (o OP.GG não tem
+// estatística de partida normal). `opgg` é o game_mode pedido à API.
 export const MODOS = {
-  ranked: { nome: "Ranqueada Solo/Duo" },
-  flex: { nome: "Ranqueada Flex" },
-  aram: { nome: "ARAM" },
+  normal: { nome: "Partida normal", opgg: "ranked" },
+  aram: { nome: "ARAM", opgg: "aram" },
 };
 
 export const ROTAS = {
@@ -321,8 +324,8 @@ async function doCache(env, chave, validade) {
 
 // A build recomendada de um campeão. `rota` é opcional: sem ela, vale a rota
 // em que o campeão mais aparece. Devolve null se o OP.GG não tiver dados.
-export async function buscarBuild(env, campeao, modo = "ranked", rota) {
-  if (!MODOS[modo]) modo = "ranked";
+export async function buscarBuild(env, campeao, modo = "normal", rota) {
+  if (!MODOS[modo]) modo = "normal";
   const nome = nomeOpgg(campeao.arquivoImagem);
 
   // O OP.GG exige uma rota mesmo quando a pessoa não escolheu. A principal
@@ -343,7 +346,7 @@ export async function buscarBuild(env, campeao, modo = "ranked", rota) {
     const pedir = (r) =>
       chamarOpgg({
         champion: nome,
-        game_mode: modo,
+        game_mode: MODOS[modo].opgg,
         position: POSICAO_OPGG[r],
         lang: "pt_BR",
         desired_output_fields: CAMPOS_PEDIDOS,
