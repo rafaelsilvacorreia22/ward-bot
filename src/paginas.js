@@ -863,16 +863,46 @@ const ESTILO = `
     .com-revelar .escalonar > * { opacity: 1; transform: none; transition: none; }
   }
 
+  /* Celular: mesma proporção do PC. Sem isto, texto e títulos ficavam do
+     tamanho da versão de computador numa tela de ~375px e tudo parecia
+     gigante. Quase todo tamanho do site é em rem, então baixar a base do
+     html escala o resto junto; o que é em px ou clamp vai à mão. */
   @media (max-width: 620px) {
+    html { font-size: 14px; }
+    body { font-size: 14px; line-height: 1.55; }
     br.so-largo { display: none; }
-    .heroi h1 { text-wrap: balance; }
-    .heroi { padding-top: 80px; }
+    h1 { font-size: 1.9rem; }
+    h2 { font-size: 1.35rem; }
+    .heroi h1 { font-size: 2.2rem; text-wrap: balance; margin-bottom: 14px; }
+    .heroi { padding-top: 78px; padding-bottom: 64px; }
     .heroi::after { display: none; }
-    .cartao { padding: 19px; }
-    .funcao-corpo { padding: 22px 20px 16px; }
-    .funcao-ao-vivo { margin: 14px 20px 20px; }
+    .sobrancelha { font-size: .78rem; letter-spacing: .18em; padding: 4px 12px; margin-bottom: 12px; }
+    .selos { gap: 7px; margin-bottom: 22px; }
+    .selos li { font-size: .78rem; padding: 7px 12px; letter-spacing: .08em; }
+    .botao { padding: 11px 22px; font-size: .9rem; letter-spacing: .12em; }
+    .botao.discreto { padding: 9px 16px; font-size: .8rem; }
+    .faixa { padding: 40px 16px; }
+    .titulo-secao { margin-bottom: 24px; }
+    .cartao { padding: 18px; }
+    .funcoes { gap: 14px; }
+    .funcao-corpo { padding: 18px 18px 12px; }
+    .funcao-num { font-size: 2rem; margin-bottom: 6px; }
+    .funcao h3 { font-size: 1.25rem; }
+    .funcao p { font-size: .9rem; }
+    .funcao-ao-vivo { margin: 12px 18px 18px; padding-top: 12px; }
+    .valor-vivo { font-size: 1.25rem; }
     .previa-msg { padding: 13px; }
-    .marca { font-size: 1.05rem; letter-spacing: .16em; }
+    .comando { padding: 12px 16px; }
+    .marca { font-size: 1rem; letter-spacing: .16em; }
+    .marca img { width: 28px; height: 28px; }
+    .topo-link { font-size: .8rem; letter-spacing: .12em; padding: 6px 6px; }
+    .tile strong { font-size: 1.6rem; }
+    .build-topo img { width: 56px; height: 56px; }
+    .item { width: 66px; }
+    .item img { width: 42px; height: 42px; }
+    .teclas { font-size: 1.15rem; }
+    .teclas span.tecla { width: 32px; height: 32px; }
+    .carregando-logo { width: 76px; height: 76px; }
   }
 `;
 
