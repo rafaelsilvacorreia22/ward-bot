@@ -22,12 +22,12 @@ comando de build:
 
 Nos três, a primeira leitura só memoriza o que já existe (sem postar), para
 o deploy não anunciar coisa velha em todos os servidores.
-- **`/build ranqueada|flex|aram <campeão> [rota]`** (o ARAM não tem rota): a build que mais ganha no meta atual
+- **`/build <campeão> [rota]`** (partida normal) e **`/build-aram <campeão>`**: a build que mais ganha no meta atual
   (itens iniciais, build principal, botas, opções de 4º, 5º e 6º item,
   runas, feitiços e ordem de habilidades), com dados do OP.GG, com o ícone de cada item. Também
   em página no site: `/build` e `/build/<campeão>`.
 
-Comandos: `/patch`, `/build`, `/dashboard` (manda o link de configuração
+Comandos: `/patch`, `/build`, `/build-aram`, `/dashboard` (manda o link de configuração
 daquele servidor).
 
 A **rotação semanal** existiu até 10/2026 e saiu: o endpoint oficial da Riot
@@ -39,8 +39,10 @@ semanas, então o bot anunciava rotação velha como se fosse nova.
 Do **OP.GG**, pela API aberta que eles publicam para integrações
 (`https://mcp-api.op.gg/mcp`, projeto https://github.com/opgginc/opgg-mcp,
 sem chave). São as estatísticas agregadas deles — dezenas a centenas de
-milhares de partidas por campeão no patch atual —, por modo (ranqueada
-solo/duo, flex, ARAM) e rota. Ver `src/builds.js`.
+milhares de partidas por campeão no patch atual —, por modo (partida
+normal e ARAM) e rota. A "partida normal" usa os números da ranqueada do
+OP.GG (solo, flex e normal têm a mesma build; o OP.GG não tem estatística
+de normal). Ver `src/builds.js`.
 
 - Cada build buscada fica 6 horas em cache no D1 (`build_cache`); se o OP.GG
   cair, a última guardada continua valendo. A rota principal de cada
