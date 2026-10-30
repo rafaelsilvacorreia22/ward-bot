@@ -48,8 +48,11 @@ const BRASAS = [
   .join("");
 
 // Logo do Discord (o "Clyde"), usado no título da inicial no lugar da
-// palavra. O role/aria-label mantém "Discord" para leitor de tela e busca.
-const LOGO_DISCORD = `<svg class="logo-discord" viewBox="0 0 127.14 96.36" role="img" aria-label="Discord"><defs><linearGradient id="grad-logo-discord" x1="0" y1="0" x2="0" y2="1"><stop class="topo" offset="0"/><stop class="base" offset="1"/></linearGradient></defs><path fill="url(#grad-logo-discord)" d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>`;
+// palavra e como partícula no fundo do topo. O role/aria-label mantém
+// "Discord" para leitor de tela e busca.
+const CAMINHO_DISCORD =
+  "M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z";
+const LOGO_DISCORD = `<svg class="logo-discord" viewBox="0 0 127.14 96.36" role="img" aria-label="Discord"><defs><linearGradient id="grad-logo-discord" x1="0" y1="0" x2="0" y2="1"><stop class="topo" offset="0"/><stop class="base" offset="1"/></linearGradient></defs><path fill="url(#grad-logo-discord)" d="${CAMINHO_DISCORD}"/></svg>`;
 
 const ICONE_LUA =`<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
 const ICONE_SOL = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>`;
@@ -699,6 +702,112 @@ const ESTILO = `
   .com-revelar .escalonar.visivel > :nth-child(5) { transition-delay: .44s; }
   .com-revelar .escalonar.visivel > :nth-child(6) { transition-delay: .55s; }
 
+  /* ---------- carregamento entre páginas ---------- */
+  /* Começa visível em toda página e some sozinho por CSS — assim funciona
+     até sem JavaScript. Ao clicar num link interno, o JS liga de novo
+     (classe "ativo") enquanto a próxima página carrega. */
+  .carregando {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    background:
+      radial-gradient(60% 50% at 50% 45%, color-mix(in srgb, var(--latao) 12%, transparent) 0%, transparent 70%),
+      var(--fundo);
+    pointer-events: none;
+    animation: sumir-carregando .35s ease .45s both;
+  }
+  .carregando.ativo { animation: aparecer-carregando .18s ease both; pointer-events: auto; }
+  /* Trava do JS: o navegador pode congelar a animação de sumir (aba em
+     segundo plano, por exemplo), e aí a tela de carregamento ficaria por
+     cima da página pronta. */
+  .carregando.pronto:not(.ativo) { display: none; }
+  @keyframes sumir-carregando { to { opacity: 0; visibility: hidden; } }
+  @keyframes aparecer-carregando { from { opacity: 0; } to { opacity: 1; visibility: visible; } }
+  .carregando-logo { position: relative; width: 96px; height: 96px; }
+  .carregando-logo img { position: relative; z-index: 1; width: 100%; height: 100%; border-radius: 50%; animation: pulsar-logo 1.1s ease-in-out infinite; }
+  /* Dois arcos girando em sentidos opostos em volta da logo. */
+  .carregando-logo::before, .carregando-logo::after {
+    content: ""; position: absolute; border-radius: 50%; border: 2px solid transparent;
+  }
+  .carregando-logo::before { inset: -14px; border-top-color: var(--latao); border-right-color: var(--latao); animation: girar .9s linear infinite; }
+  .carregando-logo::after { inset: -24px; border-bottom-color: var(--verde); border-left-color: var(--verde); animation: girar 1.4s linear infinite reverse; opacity: .7; }
+  .carregando-texto {
+    font-family: "Big Shoulders Display", sans-serif; font-weight: 800; font-size: 1rem;
+    letter-spacing: .5em; text-transform: uppercase; color: var(--latao); padding-left: .5em;
+  }
+  .carregando-texto span { display: inline-block; animation: piscar-letra 1.2s ease-in-out infinite; }
+  @keyframes pulsar-logo {
+    0%, 100% { transform: scale(.93); filter: drop-shadow(0 0 0 transparent); }
+    50% { transform: scale(1.05); filter: drop-shadow(0 0 16px color-mix(in srgb, var(--latao) 70%, transparent)); }
+  }
+  @keyframes piscar-letra { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+
+  /* ---------- botões vivos ---------- */
+  .botao, .topo-link, .tema, .selos li, .abas .tag { position: relative; overflow: hidden; }
+  .botao { transition: filter .15s ease, transform .18s cubic-bezier(.3, 1.6, .5, 1); }
+  .botao:hover { transform: translateY(-2px); }
+  .botao:active { transform: translateY(1px) scale(.96); transition-duration: .06s; }
+  /* Faixa de brilho que atravessa o botão ao passar o mouse. */
+  .botao::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .38) 50%, transparent 70%);
+    transform: translateX(-130%); transition: transform .65s ease;
+  }
+  .botao:hover::after { transform: translateX(130%); }
+  /* O botão principal "respira", chamando atenção sem piscar. */
+  .botao.destaque { animation: respirar 2.8s ease-in-out infinite; }
+  .botao.destaque:hover { animation: none; }
+  @keyframes respirar { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.18) saturate(1.15); } }
+  /* Onda que sai do ponto clicado (criada pelo JS). */
+  .onda {
+    position: absolute; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, .15) 60%, transparent 70%);
+    transform: translate(-50%, -50%) scale(0); animation: onda .6s ease-out forwards;
+  }
+  @keyframes onda { to { transform: translate(-50%, -50%) scale(1); opacity: 0; } }
+  /* Faíscas em losango que espirram do clique. */
+  .faisca {
+    position: fixed; z-index: 99; width: 7px; height: 7px; pointer-events: none;
+    background: var(--cor, var(--latao)); rotate: 45deg;
+    box-shadow: 0 0 8px var(--cor, var(--latao));
+    animation: faisca .65s cubic-bezier(.2, .8, .3, 1) forwards;
+  }
+  @keyframes faisca { to { transform: translate(var(--dx), var(--dy)) scale(.2); opacity: 0; } }
+
+  /* ---------- topo vivo ---------- */
+  .particulas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  /* A logo do Discord do título balança, sobe e desce e brilha. */
+  .logo-discord { transform-origin: 50% 65%; animation: dancar-logo 3.4s ease-in-out infinite; }
+  .heroi h1:hover .logo-discord { animation: pular-logo .7s cubic-bezier(.3, 1.6, .5, 1); }
+  @keyframes dancar-logo {
+    0%, 100% { transform: translateY(0) rotate(-6deg); filter: drop-shadow(0 0 0 transparent); }
+    25% { transform: translateY(-.09em) rotate(5deg); }
+    50% { transform: translateY(-.03em) rotate(-3deg) scale(1.06); filter: drop-shadow(0 0 .18em color-mix(in srgb, var(--latao) 75%, transparent)); }
+    75% { transform: translateY(-.1em) rotate(6deg); }
+  }
+  @keyframes pular-logo {
+    0% { transform: translateY(0) scale(1); }
+    40% { transform: translateY(-.3em) scale(1.15) rotate(-12deg); }
+    100% { transform: translateY(0) scale(1); }
+  }
+  /* Entrada do topo em cascata. */
+  .heroi-dentro > * { animation: subir-entrada .8s cubic-bezier(.2, .7, .3, 1) both; }
+  .heroi-dentro > :nth-child(1) { animation-delay: .5s; }
+  .heroi-dentro > :nth-child(2) { animation-delay: .62s; }
+  .heroi-dentro > :nth-child(3) { animation-delay: .74s; }
+  .heroi-dentro > :nth-child(4) { animation-delay: .86s; }
+  .heroi-dentro > :nth-child(5) { animation-delay: .98s; }
+  @keyframes subir-entrada { from { opacity: 0; transform: translateY(26px); filter: blur(4px); } }
+  /* Mesma trava da tela de carregamento: depois do tempo da entrada, o JS
+     desliga a animação, e o texto nunca fica preso invisível. */
+  .entrada-pronta .heroi-dentro > * { animation: none; }
+  /* O pontinho "online" dos selos pisca de leve, um de cada vez. */
+  .selos .ponto { animation: online 2.4s ease-in-out infinite; }
+  .selos li:nth-child(2) .ponto { animation-delay: .8s; }
+  .selos li:nth-child(3) .ponto { animation-delay: 1.6s; }
+  @keyframes online { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.7); } }
+  .selos li { transition: transform .2s ease, border-color .2s ease; }
+  .selos li:hover { transform: translateY(-2px); border-color: var(--latao); }
+
   @view-transition { navigation: auto; }
   .topo { view-transition-name: topo; }
   @keyframes entrar-conteudo { from { opacity: 0; transform: translateY(10px); } }
@@ -715,6 +824,9 @@ const ESTILO = `
     .botao, .cartao, .funcao, select, input { transition: none; }
     main, ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
     body::before, .brasas span, .heroi-aneis i, .rolar { animation: none; }
+    .carregando, .particulas, .faisca, .onda { display: none; }
+    .logo-discord, .heroi-dentro > *, .selos .ponto, .botao.destaque { animation: none; }
+    .botao::after { display: none; }
     .brasas { display: none; }
     .com-revelar .revelar,
     .com-revelar .escalonar > * { opacity: 1; transform: none; transition: none; }
@@ -755,6 +867,10 @@ function layout(titulo, corpo, opcoes = {}) {
 </script>
 </head>
 <body>
+<div class="carregando" id="carregando" aria-hidden="true">
+  <div class="carregando-logo"><img src="/favicon.webp" alt="" width="96" height="96"></div>
+  <p class="carregando-texto">${[..."WARD"].map((l, i) => `<span style="animation-delay:${i * 0.12}s">${l}</span>`).join("")}</p>
+</div>
 <div class="brasas" aria-hidden="true">${BRASAS}</div>
 <div class="progresso" aria-hidden="true"></div>
 <header class="topo">
@@ -838,6 +954,228 @@ ${corpo}
       );
       medir();
     }
+  })();
+
+  // Tela de carregamento ao trocar de página, onda e faíscas nos cliques e
+  // partículas no fundo do topo. Nada disso roda para quem pediu menos
+  // animação no sistema.
+  (function () {
+    var carregando = document.getElementById("carregando");
+    // Garante que a tela de carregamento sai, mesmo se a animação de CSS
+    // não andar: o tempo dela (0,45s + 0,35s) e um pouco de folga.
+    setTimeout(function () { carregando.classList.add("pronto"); }, 900);
+    // A entrada do topo dura até ~1,8s (último atraso + duração).
+    setTimeout(function () { document.documentElement.classList.add("entrada-pronta"); }, 2000);
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    // Liga a tela de carregamento só em navegação interna de verdade: link
+    // do próprio site, sem nova aba, sem âncora (#funcoes rola a página) e
+    // sem tecla modificadora (ctrl+clique abre em outra aba).
+    document.addEventListener("click", function (e) {
+      var link = e.target.closest && e.target.closest("a[href]");
+      if (!link || e.defaultPrevented || e.button !== 0) return;
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      if (link.target === "_blank" || link.hasAttribute("download")) return;
+      var destino = new URL(link.href, location.href);
+      if (destino.origin !== location.origin) return;
+      if (destino.pathname === location.pathname && destino.hash) return;
+      carregando.classList.add("ativo");
+    });
+    document.addEventListener("submit", function () { carregando.classList.add("ativo"); });
+    // Voltar pelo navegador reaproveita a página da memória: sem isto ela
+    // voltaria com a tela de carregamento ainda ligada.
+    window.addEventListener("pageshow", function (e) {
+      if (e.persisted) carregando.classList.remove("ativo");
+    });
+
+    // Onda a partir do ponto do clique e faíscas espirrando dele.
+    var CORES = ["var(--latao)", "var(--latao-claro)", "var(--verde)"];
+    document.addEventListener("pointerdown", function (e) {
+      var alvo = e.target.closest && e.target.closest(".botao, .topo-link, .tema, .selos li, .abas .tag");
+      if (!alvo) return;
+      var caixa = alvo.getBoundingClientRect();
+      var tamanho = Math.max(caixa.width, caixa.height) * 2.2;
+      var onda = document.createElement("span");
+      onda.className = "onda";
+      onda.style.width = onda.style.height = tamanho + "px";
+      onda.style.left = e.clientX - caixa.left + "px";
+      onda.style.top = e.clientY - caixa.top + "px";
+      alvo.appendChild(onda);
+      setTimeout(function () { onda.remove(); }, 650);
+
+      if (!alvo.classList.contains("botao")) return;
+      for (var i = 0; i < 10; i++) {
+        var f = document.createElement("span");
+        var angulo = (Math.PI * 2 * i) / 10 + Math.random() * 0.5;
+        var distancia = 40 + Math.random() * 45;
+        f.className = "faisca";
+        f.style.left = e.clientX - 3 + "px";
+        f.style.top = e.clientY - 3 + "px";
+        f.style.setProperty("--dx", Math.cos(angulo) * distancia + "px");
+        f.style.setProperty("--dy", Math.sin(angulo) * distancia + "px");
+        f.style.setProperty("--cor", CORES[i % CORES.length]);
+        document.body.appendChild(f);
+        setTimeout(function (el) { el.remove(); }, 700, f);
+      }
+    });
+
+    // Partículas do topo: pontos de luz subindo, ligados por fios finos
+    // quando passam perto, e algumas logos do Discord flutuando devagar. O
+    // mouse empurra as partículas de leve. Para de desenhar quando o topo
+    // sai da tela ou a aba fica escondida, para não gastar bateria à toa.
+    var tela = document.getElementById("particulas");
+    if (!tela || !tela.getContext) return;
+    var ctx = tela.getContext("2d");
+    var logo = new Path2D(tela.dataset.logo);
+    var largura = 0, altura = 0, pontos = [], logos = [], visivel = true, quadro = 0;
+    var mouse = { x: -9999, y: -9999 };
+
+    // As cores do tema viram "r,g,b" uma vez só (e de novo ao trocar de
+    // tema) — ler o CSS a cada partícula a cada quadro pesaria.
+    var rgb = {};
+    function lerCores() {
+      var estilo = getComputedStyle(document.documentElement);
+      ["--latao", "--verde"].forEach(function (nome) {
+        var n = parseInt((estilo.getPropertyValue(nome).trim() || "#c8a24a").slice(1), 16);
+        rgb[nome] = (n >> 16) + "," + ((n >> 8) & 255) + "," + (n & 255);
+      });
+    }
+    function cor(nome, alfa) { return "rgba(" + rgb[nome] + "," + alfa.toFixed(3) + ")"; }
+    lerCores();
+
+    function ajustar() {
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      largura = tela.clientWidth;
+      altura = tela.clientHeight;
+      tela.width = largura * dpr;
+      tela.height = altura * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var quantos = Math.min(110, Math.round((largura * altura) / 13000));
+      pontos = [];
+      for (var i = 0; i < quantos; i++) pontos.push(novoPonto(true));
+      logos = [];
+      var nLogos = largura < 620 ? 4 : 8;
+      for (var j = 0; j < nLogos; j++) logos.push(novaLogo(true));
+    }
+
+    function novoPonto(espalhado) {
+      return {
+        x: Math.random() * largura,
+        y: espalhado ? Math.random() * altura : altura + 10,
+        r: 0.6 + Math.random() * 1.9,
+        vx: (Math.random() - 0.5) * 0.25,
+        vy: -(0.15 + Math.random() * 0.55),
+        fase: Math.random() * Math.PI * 2,
+        verde: Math.random() < 0.3,
+      };
+    }
+
+    function novaLogo(espalhado) {
+      return {
+        x: Math.random() * largura,
+        y: espalhado ? Math.random() * altura : altura + 40,
+        tam: 16 + Math.random() * 22,
+        vy: -(0.12 + Math.random() * 0.3),
+        giro: Math.random() * Math.PI * 2,
+        vgiro: (Math.random() - 0.5) * 0.01,
+        fase: Math.random() * Math.PI * 2,
+        verde: Math.random() < 0.35,
+      };
+    }
+
+    function desenhar() {
+      if (!visivel || document.hidden) { quadro = 0; return; }
+      quadro = requestAnimationFrame(desenhar);
+      ctx.clearRect(0, 0, largura, altura);
+      var agora = performance.now() / 1000;
+
+      for (var i = 0; i < pontos.length; i++) {
+        var p = pontos[i];
+        // Empurrão do mouse: quanto mais perto, mais forte.
+        var dx = p.x - mouse.x, dy = p.y - mouse.y, d2 = dx * dx + dy * dy;
+        if (d2 < 14400) {
+          var forca = (1 - d2 / 14400) * 1.6;
+          var d = Math.sqrt(d2) || 1;
+          p.x += (dx / d) * forca;
+          p.y += (dy / d) * forca;
+        }
+        p.x += p.vx + Math.sin(agora + p.fase) * 0.15;
+        p.y += p.vy;
+        if (p.y < -10 || p.x < -20 || p.x > largura + 20) pontos[i] = p = novoPonto(false);
+        var brilho = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(agora * 2 + p.fase));
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = cor(p.verde ? "--verde" : "--latao", brilho);
+        ctx.fill();
+        // Halo: um círculo maior e quase transparente, mais barato que
+        // shadowBlur.
+        if (p.r > 1.6) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 3.2, 0, Math.PI * 2);
+          ctx.fillStyle = cor(p.verde ? "--verde" : "--latao", brilho * 0.12);
+          ctx.fill();
+        }
+      }
+
+      // Fios entre pontos próximos, como uma constelação.
+      for (var a = 0; a < pontos.length; a++) {
+        for (var b = a + 1; b < pontos.length; b++) {
+          var ex = pontos[a].x - pontos[b].x, ey = pontos[a].y - pontos[b].y;
+          var dist2 = ex * ex + ey * ey;
+          if (dist2 > 9000) continue;
+          ctx.strokeStyle = cor("--latao", (1 - dist2 / 9000) * 0.18);
+          ctx.lineWidth = 0.6;
+          ctx.beginPath();
+          ctx.moveTo(pontos[a].x, pontos[a].y);
+          ctx.lineTo(pontos[b].x, pontos[b].y);
+          ctx.stroke();
+        }
+      }
+
+      for (var k = 0; k < logos.length; k++) {
+        var l = logos[k];
+        l.y += l.vy;
+        l.giro += l.vgiro;
+        if (l.y < -50) logos[k] = l = novaLogo(false);
+        var escala = l.tam / 127;
+        var oscila = Math.sin(agora * 1.3 + l.fase);
+        ctx.save();
+        ctx.translate(l.x + oscila * 12, l.y);
+        ctx.rotate(l.giro + oscila * 0.25);
+        ctx.scale(escala, escala);
+        ctx.translate(-63.5, -48);
+        ctx.fillStyle = cor(l.verde ? "--verde" : "--latao", 0.1 + 0.08 * (0.5 + 0.5 * oscila));
+        ctx.fill(logo);
+        ctx.restore();
+      }
+    }
+
+    function retomar() { if (!quadro && visivel && !document.hidden) desenhar(); }
+
+    ajustar();
+    desenhar();
+    var redimensionar;
+    window.addEventListener("resize", function () {
+      clearTimeout(redimensionar);
+      redimensionar = setTimeout(ajustar, 150);
+    });
+    tela.parentElement.addEventListener("pointermove", function (e) {
+      var caixa = tela.getBoundingClientRect();
+      mouse.x = e.clientX - caixa.left;
+      mouse.y = e.clientY - caixa.top;
+    });
+    tela.parentElement.addEventListener("pointerleave", function () { mouse.x = mouse.y = -9999; });
+    document.addEventListener("visibilitychange", retomar);
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (entradas) {
+        visivel = entradas[0].isIntersecting;
+        retomar();
+      }).observe(tela);
+    }
+    // O tema pode trocar as cores (claro/escuro).
+    document.getElementById("alternar-tema").addEventListener("click", function () {
+      setTimeout(lerCores, 0);
+    });
   })();
 </script>
 </body>
@@ -924,6 +1262,7 @@ export function landing(clientId, vitrine) {
 
   return `
     <section class="heroi">
+      <canvas class="particulas" id="particulas" aria-hidden="true" data-logo="${CAMINHO_DISCORD}"></canvas>
       <div class="heroi-aneis" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       <div class="heroi-dentro">
         <p class="sobrancelha">Bot de Discord · League of Legends</p>
