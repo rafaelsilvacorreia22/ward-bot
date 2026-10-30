@@ -1,12 +1,27 @@
 # Ward — bot de League of Legends para Discord
 
-Bot que qualquer servidor pode adicionar (não precisa mexer em código). Dois
+Bot que qualquer servidor pode adicionar (não precisa mexer em código). Cinco
 avisos, cada um com seu canal, configurados pelo **dashboard web**, e um
 comando de build:
 
 - **Patch novo**: a versão e o resumo oficial traduzido, quando sai patch.
 - **Notícias oficiais**: CBLOL e outros esports, skins, atualizações do jogo
   e comunicados — direto do site da Riot em português.
+- **Skins em promoção**: quando a loja troca a promoção da semana, a lista com
+  preço cheio, preço com desconto e data de fim (dados do OP.GG).
+- **Skins novas**: quando um patch traz skins novas, uma imagem de cada. A
+  descoberta compara o Data Dragon com a tabela `skins_conhecidas`, varrendo
+  10 campeões a cada 2 minutos só quando o patch muda (o arquivo com todos
+  os campeões, 2,3 MB, estouraria a CPU do plano free).
+- **Vídeos do YouTube**: vídeos novos do canal oficial
+  [@leagueoflegends](https://www.youtube.com/@leagueoflegends/videos). O RSS
+  do YouTube responde 404 desde 10/2026; com o segredo opcional
+  `YOUTUBE_API_KEY` (YouTube Data API, grátis) o bot usa a API oficial, sem
+  ele lê a página de vídeos do canal — que pode quebrar se o YouTube mudar o
+  HTML.
+
+Nos três, a primeira leitura só memoriza o que já existe (sem postar), para
+o deploy não anunciar coisa velha em todos os servidores.
 - **`/build ranqueada|flex|aram <campeão> [rota]`** (o ARAM não tem rota): a build que mais ganha no meta atual
   (itens iniciais, build principal, botas, opções de 4º, 5º e 6º item,
   runas, feitiços e ordem de habilidades), com dados do OP.GG, com o ícone de cada item. Também
@@ -69,6 +84,7 @@ src/index.js      # rotas HTTP + crons (patch / notícias; emojis do /build)
 src/discord.js    # verificação de assinatura + chamadas REST da Discord
 src/oauth.js      # "Entrar com Discord" do dashboard (sessão em cookie assinado)
 src/riot.js       # versão do jogo e roster de campeões (Data Dragon)
+src/avisos.js     # skins em promoção, skins novas e vídeos do YouTube
 src/builds.js     # builds do OP.GG (com cache) + nomes/ícones em pt-BR
 src/noticias.js   # notícias oficiais do site da Riot em pt-BR
 src/traducao.js   # tradução do resumo do patch (Workers AI, com reservas)
@@ -128,7 +144,7 @@ npm run banco
 E aplique as migrações, em ordem (`migracoes/0001...` até a última):
 
 ```bash
-npx wrangler d1 execute ward-bot --remote --file=migracoes/0009_builds_opgg.sql
+npx wrangler d1 execute ward-bot --remote --file=migracoes/0010_promocoes_skins_youtube.sql
 ```
 
 ### 3. Configurar os segredos do Worker
@@ -145,6 +161,7 @@ Cloudflare (ou `npx wrangler secret put NOME`, um de cada vez):
 | `SESSION_SECRET` | Uma string aleatória grande (ex: gerada com `openssl rand -hex 32`) — assina o cookie de login |
 | `SETUP_KEY` | Uma senha inventada por você — protege as rotas `/registrar-comandos` e `/admin/checar` |
 | `RIOT_API_KEY` | Opcional, não usada hoje (o `/build` vem do OP.GG) |
+| `YOUTUBE_API_KEY` | Opcional. Chave da YouTube Data API v3 — deixa o aviso de vídeos mais estável |
 
 ### 4. Deploy
 
