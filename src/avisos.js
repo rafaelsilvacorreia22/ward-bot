@@ -117,6 +117,12 @@ export async function varrerSkinsNovas(env) {
       const id = Number(skin.id);
       if (!skin.num || conhecidas.has(id)) continue; // num 0 é a aparência padrão
       linhas.push([id, campeao.id, skin.name]);
+      // Variação de cor ("Kai'Sa K/DA FIRESTARTER (Rubi)") vem no Data
+      // Dragon como skin própria, mas com `parentSkin` apontando para a
+      // principal — e sem arte. Fica registrada como conhecida, mas não é
+      // anunciada: no patch 16.22 foram 8 variações por campeão, postadas uma
+      // a uma, e o canal virou uma enxurrada de cartões vazios.
+      if (skin.parentSkin != null) continue;
       if (!aprendendo) estado.novas.push({ skinId: id, nome: skin.name, campeao: campeao.nome, arquivoCampeao: campeao.arquivoImagem });
     }
   }
@@ -151,22 +157,34 @@ export async function varrerSkinsNovas(env) {
   return { terminou: true, novas: estado.novas.length, aprendendo };
 }
 
-// Uma imagem por skin: até 10 embeds por mensagem, então a lista vira
-// quantas mensagens precisar.
+// Quantas skins aparecem com imagem; o resto entra só como nome na lista.
+const SKINS_COM_IMAGEM = 4;
+
+// Sempre UMA mensagem por patch, por maior que seja a leva de skins: as
+// primeiras com a arte e todas listadas por nome. Antes era uma imagem por
+// skin em quantas mensagens precisasse, e um patch grande inundava o canal.
 export function mensagensSkinsNovas(novas) {
-  const mensagens = [];
-  for (let i = 0; i < novas.length; i += 10) {
-    mensagens.push({
-      content: i === 0 ? `**${novas.length === 1 ? "Skin nova no jogo!" : `${novas.length} skins novas no jogo!`}**` : undefined,
-      embeds: novas.slice(i, i + 10).map((s) => ({
+  // Defesa extra: variação de cor nunca chega aqui (ver varrerSkinsNovas),
+  // mas se chegar, sai pelo nome com "(...)" no fim.
+  const principais = novas.filter((s) => !/\([^)]*\)\s*$/.test(s.nome));
+  if (!principais.length) return [];
+
+  const lista = principais.map((s) => `• **${s.nome}**`);
+  const visiveis = lista.slice(0, 25);
+  const resto = lista.length - visiveis.length;
+  return [
+    {
+      content:
+        `**${principais.length === 1 ? "Skin nova no jogo!" : `${principais.length} skins novas no jogo!`}**\n` +
+        visiveis.join("\n") +
+        (resto > 0 ? `\n…e mais ${resto}.` : ""),
+      embeds: principais.slice(0, SKINS_COM_IMAGEM).map((s) => ({
         title: s.nome,
-        description: `Nova skin de **${s.campeao}**`,
         color: 0xc8a24a,
         image: { url: urlSplashSkin(s.arquivoCampeao, s.skinId) },
       })),
-    });
-  }
-  return mensagens;
+    },
+  ];
 }
 
 // ---------- vídeos do YouTube ----------

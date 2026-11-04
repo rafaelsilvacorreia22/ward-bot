@@ -433,9 +433,22 @@ async function postarSkinsNovas(env) {
   } catch {}
   if (!fila.length) return { nada: true };
 
+  // Trava: patch normal traz de 5 a 20 skins. Uma leva enorme quase com
+  // certeza é dado errado (Data Dragon reorganizado, banco zerado) — melhor
+  // não postar do que inundar todos os servidores.
+  if (fila.length > 60) {
+    console.log(`Skins novas: ${fila.length} na fila, parece erro — não postei.`);
+    await salvarEstado(env, "skins_para_postar", "[]");
+    return { descartadas: fila.length };
+  }
+
+  const mensagens = mensagensSkinsNovas(fila);
+  if (!mensagens.length) {
+    await salvarEstado(env, "skins_para_postar", "[]");
+    return { nada: true };
+  }
   await salvarEstado(env, "vitrine_skins", JSON.stringify(fila.slice(0, 4))).catch(() => {});
   const alvos = await listarComAvisoLigado(env, "skins");
-  const mensagens = mensagensSkinsNovas(fila);
   await paraCadaServidor(
     alvos,
     env,
