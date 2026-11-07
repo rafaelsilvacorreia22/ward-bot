@@ -1310,6 +1310,22 @@ export default {
   // achar). Então tudo passa por este try/catch: registra o erro no log e
   // devolve uma página com texto de verdade.
   async fetch(request, env, ctx) {
+    // Endereço oficial único: páginas abertas pelo workers.dev antigo ou pelo
+    // www vão para wardbot.com.br (301, para o Google juntar tudo num lugar
+    // só). Ficam de fora o POST das interações do Discord e o retorno do
+    // login, que precisam continuar respondendo no endereço em que foram
+    // chamados.
+    const url = new URL(request.url);
+    const oficial = new URL(SITE).hostname;
+    if (
+      url.hostname !== oficial &&
+      url.hostname !== "localhost" &&
+      request.method === "GET" &&
+      !url.pathname.startsWith("/auth/")
+    ) {
+      return Response.redirect(`${SITE}${url.pathname}${url.search}`, 301);
+    }
+
     let resposta;
     try {
       resposta = await rotear(request, env, ctx);

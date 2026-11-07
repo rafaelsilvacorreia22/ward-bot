@@ -4,8 +4,9 @@
 export const API = "https://discord.com/api/v10";
 
 // Endereço público do site. O cron não tem requisição de onde tirar a
-// origem, então fica fixo aqui.
-export const SITE = "https://ward-bot.ghostbot.workers.dev";
+// origem, então fica fixo aqui. O antigo (ward-bot.ghostbot.workers.dev)
+// ainda responde, mas redireciona as páginas para cá (ver index.js).
+export const SITE = "https://wardbot.com.br";
 
 // Todo aviso público que o Ward posta leva a "assinatura" com o link do site:
 // quem vê o aviso num servidor descobre de onde ele vem e como colocar no
