@@ -14,7 +14,7 @@ import {
 } from "./riot.js";
 import { traduzirParaPtBr } from "./traducao.js";
 import { registrarBuildPedida } from "./db.js";
-import { MODOS, ROTAS, FRAGMENTOS, buscarBuild, dadosDoJogo } from "./builds.js";
+import { MODOS, ROTAS, FRAGMENTOS, buscarBuild, buscarCounters, dadosDoJogo } from "./builds.js";
 
 const CAMPEAO = { type: 3, name: "campeao", description: "Campeão", required: true, autocomplete: true };
 const ROTA = {
@@ -39,6 +39,11 @@ export const DEFINICOES = [
     name: "build-aram",
     description: "A build que mais ganha no meta atual do ARAM",
     options: [CAMPEAO],
+  },
+  {
+    name: "counter",
+    description: "Contra quem o campeão vai bem e mal (partida normal)",
+    options: [CAMPEAO, ROTA],
   },
   { name: "dashboard", description: "Link pra configurar o Ward neste servidor" },
 ];
@@ -272,3 +277,76 @@ export const COMANDOS = {
 // O /build-aram é o mesmo comando: quem decide o modo é o nome dele (ver
 // ehAram).
 COMANDOS["build-aram"] = COMANDOS.build;
+
+// O embed do /counter: os confrontos bons e ruins do campeão, cada um com o
+// ícone do adversário e a taxa de vitória do campeão pedido contra ele.
+export function embedDosCounters({ campeao, counters, emojis, versao, porId, origin }) {
+  const linha = (c) => {
+    const adversario = porId.get(c.campeaoId);
+    const icone = adversario ? emoji(emojis, adversario.arquivoImagem) : "";
+    return `${icone} **${c.nome}** · ${porcentagem(c.taxa)} de vitória · ${milhar(c.jogos)} partidas`.trim();
+  };
+  const rota = counters.rota ? ` · ${ROTAS[counters.rota] ?? counters.rota}` : "";
+  const total = counters.rotas.reduce((s, r) => s + r.jogos, 0);
+  const outras = counters.rotas
+    .filter((r) => ROTAS[r.rota] && r.rota !== counters.rota && r.jogos >= total * 0.05)
+    .map((r) => ROTAS[r.rota]);
+
+  return {
+    title: `${campeao.nome}${rota} · counters`,
+    url: `${origin}/build/${encodeURIComponent(campeao.arquivoImagem)}${counters.rota ? `?rota=${counters.rota}` : ""}`,
+    color: 0xc8a24a,
+    thumbnail: { url: urlIconeCampeao(versao, campeao.arquivoImagem) },
+    description:
+      `A porcentagem é a vitória de **${campeao.nome}** em cada confronto.` +
+      (outras.length ? `\nTambém jogado em: ${outras.join(", ")} — use a opção \`rota\`.` : ""),
+    fields: [
+      { name: "✅ Vai bem contra", value: counters.fortes.map(linha).join("\n") || "Sem amostra suficiente." },
+      { name: "⚠️ Sofre contra", value: counters.fracos.map(linha).join("\n") || "Sem amostra suficiente." },
+    ],
+    footer: { text: `Dados: OP.GG · patch ${versaoPublica(versao)} · partida normal` },
+  };
+}
+
+// Busca no OP.GG (ou no cache de 6h — ver buscarCounters). Efêmero como o
+// /build: é consulta pessoal.
+COMANDOS.counter = {
+  adiar: true,
+  efemera: true,
+  async executar(env, interacao, origin) {
+    const texto = opcao(interacao, "campeao");
+    const rota = opcao(interacao, "rota");
+    const campeao = await acharCampeao(env, texto);
+    if (!campeao) {
+      await editarResposta(interacao, { content: `Não achei nenhum campeão chamado "${texto}".` });
+      return;
+    }
+
+    let counters;
+    try {
+      counters = await buscarCounters(env, campeao, rota);
+    } catch {
+      await editarResposta(interacao, {
+        content: "Não consegui buscar os counters agora (o OP.GG não respondeu). Tenta de novo em instantes.",
+      });
+      return;
+    }
+    if (!counters.fortes.length && !counters.fracos.length) {
+      const onde = rota ? ` na rota ${ROTAS[rota]}` : "";
+      await editarResposta(interacao, {
+        content: `Ainda não há confrontos suficientes de **${campeao.nome}**${onde} neste patch.`,
+      });
+      return;
+    }
+
+    const versao = await versaoAtual();
+    const [todos, emojis] = await Promise.all([
+      todosOsCampeoes(env, versao),
+      mapaDeEmojis(env).catch(() => null),
+    ]);
+    await editarResposta(interacao, {
+      embeds: [embedDosCounters({ campeao, counters, emojis, versao, porId: new Map(todos.map((c) => [c.id, c])), origin })],
+    });
+  },
+  autocompletar: COMANDOS.build.autocompletar,
+};

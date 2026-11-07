@@ -380,3 +380,79 @@ export async function buscarBuild(env, campeao, modo = "normal", rota) {
     throw err;
   }
 }
+
+// ---------- /counter ----------
+
+const CAMPOS_COUNTER = [
+  "data.summary.positions[].name",
+  "data.summary.positions[].stats.{play,win_rate,role_rate}",
+  "data.strong_counters[].{champion_id,champion_name,my_win_rate,play}",
+  "data.weak_counters[].{champion_id,champion_name,my_win_rate,play}",
+  "data.counters_meta",
+];
+
+// Contra quem o campeão vai bem e mal na rota (partida normal). Mesma lógica
+// de rota e de cache do /build: sem rota escolhida, vale a principal.
+export async function buscarCounters(env, campeao, rota) {
+  const nome = nomeOpgg(campeao.arquivoImagem);
+  let palpite = rota;
+  if (!palpite) {
+    const { valor } = await doCache(env, `rota:${nome}`, VALIDADE_ROTA_MS);
+    palpite = valor ?? "MIDDLE";
+  }
+
+  const chave = `counter:${nome}:${palpite}`;
+  const cache = await doCache(env, chave, VALIDADE_CACHE_MS);
+  if (cache.valor && cache.fresco) return cache.valor;
+
+  // Cada confronto: o adversário e a taxa de vitória DO CAMPEÃO pedido
+  // contra ele (my_win_rate), nos dois lados da lista.
+  const confrontos = (lista) =>
+    (Array.isArray(lista) ? lista : [])
+      .filter((c) => c?.champion_id && c?.play)
+      .map((c) => ({ campeaoId: c.champion_id, nome: c.champion_name, taxa: c.my_win_rate, jogos: c.play }));
+
+  try {
+    const pedir = (r) =>
+      chamarOpgg({
+        champion: nome,
+        game_mode: "ranked",
+        position: POSICAO_OPGG[r],
+        lang: "pt_BR",
+        desired_output_fields: CAMPOS_COUNTER,
+      });
+
+    let dados = await pedir(palpite);
+    let rotaFinal = palpite;
+    const rotas = (d) =>
+      (d?.summary?.positions ?? [])
+        .map((p) => ({ rota: ROTA_DO_OPGG[p.name] ?? p.name, jogos: p.stats?.play ?? 0 }))
+        .sort((a, b) => b.jogos - a.jogos);
+    if (!rota) {
+      const principal = rotas(dados)[0]?.rota;
+      if (principal && ROTAS[principal]) {
+        await salvarCacheBuild(env, `rota:${nome}`, JSON.stringify(principal)).catch(() => {});
+        if (principal !== palpite) {
+          dados = await pedir(principal);
+          rotaFinal = principal;
+        }
+      }
+    }
+
+    const resultado = {
+      rota: rotaFinal,
+      rotas: rotas(dados),
+      fortes: confrontos(dados?.strong_counters).sort((a, b) => b.taxa - a.taxa),
+      fracos: confrontos(dados?.weak_counters).sort((a, b) => a.taxa - b.taxa),
+    };
+    await salvarCacheBuild(env, `counter:${nome}:${rotaFinal}`, JSON.stringify(resultado)).catch(() => {});
+    await salvarEstado(env, "opgg_erro", "").catch(() => {});
+    return resultado;
+  } catch (err) {
+    console.log(`OP.GG (counters) falhou para ${nome}:`, err.message);
+    await salvarEstado(env, "opgg_erro", String(err.message).slice(0, 300)).catch(() => {});
+    await salvarEstado(env, "opgg_erro_em", new Date().toISOString()).catch(() => {});
+    if (cache.valor) return cache.valor;
+    throw err;
+  }
+}

@@ -14,6 +14,7 @@ import {
   registrarComandosGlobais,
   pegarServidor,
   enviarDM,
+  SITE,
   sairDoServidor,
   listarEmojisDoApp,
   criarEmojiDoApp,
@@ -100,6 +101,8 @@ const SO_NO_SERVIDOR = {
   data: { content: "Esse comando só funciona dentro do servidor.", flags: EFEMERA },
 };
 
+const COMANDOS_LIMITADOS = new Set(["build", "build-aram", "counter"]);
+
 function ackAdiado(efemera) {
   return { type: RESPOSTA.ADIAR_MENSAGEM, data: efemera ? { flags: EFEMERA } : {} };
 }
@@ -134,6 +137,22 @@ async function tratarInteracao(interacao, env, ctx, origin) {
 
     const comando = COMANDOS[interacao.data.name];
     if (!comando) return json(SO_NO_SERVIDOR);
+
+    // Comandos que chamam o OP.GG têm limite por servidor (ver wrangler.jsonc).
+    // Sem o binding (rodando local), não limita.
+    if (COMANDOS_LIMITADOS.has(interacao.data.name) && env.LIMITE_COMANDOS) {
+      const { success } = await env.LIMITE_COMANDOS.limit({ key: interacao.guild_id });
+      if (!success) {
+        ctx.waitUntil(registrarEvento(env, "limite_atingido").catch(() => {}));
+        return json({
+          type: RESPOSTA.MENSAGEM,
+          data: {
+            content: "Muitos pedidos neste servidor agora. Espera um minutinho e tenta de novo.",
+            flags: EFEMERA,
+          },
+        });
+      }
+    }
 
     // Contagem de uso (sem identificar quem), fora do caminho da resposta pra
     // não gastar nada do prazo de 3 segundos que o Discord dá.
@@ -176,6 +195,57 @@ async function idDoDono(env) {
   }
 }
 
+// ---------- avisos de problema para o dono do bot ----------
+
+// O que pode quebrar sem ser culpa de um servidor específico, com o que dizer
+// ao dono quando quebrar.
+const FONTES_VIGIADAS = {
+  patch: "Aviso de patch — não consegui ler a versão do jogo ou as notas do patch.",
+  noticias: "Notícias — o site de notícias da Riot não respondeu ou mudou o formato.",
+  promocoes: "Skins em promoção — a API do OP.GG não respondeu.",
+  youtube: "Vídeos do YouTube — a página do canal mudou ou o YouTube recusou (vale configurar a YOUTUBE_API_KEY).",
+  opgg: "/build e /counter — o OP.GG está recusando as consultas; o bot está respondendo com a última build guardada.",
+  discord: "Discord — o bot não conseguiu falar com a API do Discord (token inválido ou Discord fora do ar).",
+};
+
+// Recebe { fonte: mensagemDeErro | null } da rodada do cron (fonte que não
+// rodou nesta rodada fica de fora). Avisa por DM quando uma fonte falha duas
+// rodadas seguidas — uma falha solta costuma ser instabilidade passageira —
+// e avisa de novo quando ela volta. Cada aviso sai uma vez só.
+async function vigiarProblemas(env, resultados) {
+  const dono = await idDoDono(env);
+  if (!dono) return;
+  for (const [fonte, erro] of Object.entries(resultados)) {
+    if (!(fonte in FONTES_VIGIADAS) || erro === undefined) continue;
+    let estado = { falhas: 0, avisado: false };
+    try {
+      estado = JSON.parse((await pegarEstado(env, `alerta_${fonte}`)) || "null") ?? estado;
+    } catch {}
+
+    let novo;
+    if (erro) {
+      novo = { falhas: estado.falhas + 1, avisado: estado.avisado };
+      if (novo.falhas >= 2 && !novo.avisado) {
+        await enviarDM(env, dono, {
+          content:
+            `⚠️ **Ward com problema:** ${FONTES_VIGIADAS[fonte]}\n` +
+            "```" + String(erro).slice(0, 300) + "```" +
+            `Detalhes no painel: ${SITE}/admin/uso`,
+        });
+        novo.avisado = true;
+      }
+    } else {
+      if (estado.avisado) {
+        await enviarDM(env, dono, { content: `✅ **Ward:** voltou a funcionar — ${FONTES_VIGIADAS[fonte].split(" — ")[0]}.` });
+      }
+      novo = { falhas: 0, avisado: false };
+    }
+    if (novo.falhas !== estado.falhas || novo.avisado !== estado.avisado) {
+      await salvarEstado(env, `alerta_${fonte}`, JSON.stringify(novo));
+    }
+  }
+}
+
 // Servidores onde o Ward está E o usuário logado administra — cruza as duas
 // listas com uma única chamada paginada (ver discord.js) em vez de checar
 // servidor a servidor.
@@ -184,29 +254,89 @@ async function servidoresDoUsuario(env, sessao) {
   return doBot.filter((g) => sessao.guilds.includes(g.id));
 }
 
-// Roda a ação em vários servidores sem estourar o limite de sub-requests do
-// Worker nem apanhar rate limit da Discord: um punhado por vez, e erro de um
-// servidor não derruba os outros.
-// `funcao` ("patch", "promocoes", "skins", "youtube") diz em qual coluna
-// gravar a falha. É o único caminho por onde esses avisos postam, então
-// registrar aqui cobre todos.
-async function paraCadaServidor(configs, env, acao, funcao, tamanhoLote = 8) {
-  for (let i = 0; i < configs.length; i += tamanhoLote) {
-    const lote = configs.slice(i, i + tamanhoLote);
-    await Promise.all(
-      lote.map(async (config) => {
-        try {
-          await acao(config);
-          if (funcao) await limparErroEnvio(env, config.guild_id, funcao);
-        } catch (err) {
-          console.log(`Falha no servidor ${config.guild_id}:`, err.message);
-          if (funcao) {
-            await registrarErroEnvio(env, config.guild_id, funcao, err.message).catch(() => {});
-          }
-        }
-      })
+// ---------- fila de envios ----------
+//
+// Os avisos automáticos não são enviados na hora para todos os servidores:
+// entram na fila (tabela envios_pendentes) e cada rodada do cron manda um
+// lote. O plano free do Worker permite ~50 sub-requests por execução — antes,
+// com 40+ servidores, os últimos ficavam sem o aviso. Com a fila, um aviso
+// para 200 servidores só demora alguns minutos a mais para chegar em todos.
+
+// `funcao` ("patch", "noticias", "promocoes", "skins", "youtube") diz em
+// qual coluna gravar a falha de cada servidor (ver drenarFila).
+async function enfileirar(env, configs, canalDe, mensagens, funcao) {
+  const linhas = [];
+  for (const config of configs) {
+    const canal = canalDe(config);
+    if (!canal) continue;
+    for (const m of mensagens) linhas.push([config.guild_id, canal, JSON.stringify(m), funcao]);
+  }
+  // Várias linhas por INSERT: o plano free também limita consultas por
+  // execução (o D1 aceita até 100 parâmetros por consulta: 4 colunas x 25).
+  const consultas = [];
+  for (let i = 0; i < linhas.length; i += 25) {
+    const grupo = linhas.slice(i, i + 25);
+    consultas.push(
+      env.DB.prepare(
+        `INSERT INTO envios_pendentes (guild_id, canal_id, corpo, funcao, criado)
+         VALUES ${grupo.map(() => "(?, ?, ?, ?, datetime('now'))").join(",")}`
+      ).bind(...grupo.flat())
     );
   }
+  if (consultas.length) await env.DB.batch(consultas);
+  return linhas.length;
+}
+
+// Erro que tentar de novo não resolve: o Discord recusou o conteúdo (400),
+// o bot não tem permissão (403/50013/50001) ou o canal sumiu (404).
+const ERRO_DEFINITIVO = /-> (400|403|404)\b|50001|50013/;
+
+// Manda até `limite` mensagens da fila, na ordem em que entraram.
+async function drenarFila(env, limite) {
+  const { results } = await env.DB.prepare(
+    "SELECT id, guild_id, canal_id, corpo, funcao, tentativas FROM envios_pendentes ORDER BY id LIMIT ?"
+  )
+    .bind(limite)
+    .all();
+  if (!results.length) return { enviados: 0 };
+
+  const remover = [];
+  const deuCerto = new Map(); // funcao -> Set(guild)
+  let enviados = 0;
+  for (const envio of results) {
+    try {
+      await enviarMensagem(env, envio.canal_id, JSON.parse(envio.corpo));
+      remover.push(envio.id);
+      enviados++;
+      if (!deuCerto.has(envio.funcao)) deuCerto.set(envio.funcao, new Set());
+      deuCerto.get(envio.funcao).add(envio.guild_id);
+    } catch (err) {
+      // Discord pedindo calma: para a rodada, o resto fica para a próxima.
+      if (/-> 429\b/.test(err.message)) break;
+      console.log(`Falha ao enviar para ${envio.guild_id}:`, err.message);
+      if (ERRO_DEFINITIVO.test(err.message) || envio.tentativas >= 2) {
+        remover.push(envio.id);
+        await registrarErroEnvio(env, envio.guild_id, envio.funcao, err.message).catch(() => {});
+      } else {
+        await env.DB.prepare("UPDATE envios_pendentes SET tentativas = tentativas + 1 WHERE id = ?")
+          .bind(envio.id)
+          .run();
+      }
+    }
+  }
+
+  const consultas = [];
+  if (remover.length) {
+    consultas.push(
+      env.DB.prepare(`DELETE FROM envios_pendentes WHERE id IN (${remover.map(() => "?").join(",")})`).bind(...remover)
+    );
+  }
+  // Envio que deu certo prova que o canal voltou a funcionar: limpa o erro.
+  for (const [funcao, guilds] of deuCerto) {
+    consultas.push(...[...guilds].map((g) => limparErroEnvio(env, g, funcao, { soConsulta: true })));
+  }
+  if (consultas.length) await env.DB.batch(consultas);
+  return { enviados, naFila: results.length - remover.length };
 }
 
 // Traz o resumo oficial da Riot (traduzido) em vez de só um link — a Riot não
@@ -242,12 +372,7 @@ async function checarPatch(env, apenasGuild) {
   const { versao, corpo } = await construirEmbedPatch(env);
   const todos = await listarPatchAtivo(env);
   const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
-  await paraCadaServidor(
-    alvos,
-    env,
-    (config) => (config.patch_channel_id ? enviarMensagem(env, config.patch_channel_id, corpo) : null),
-    "patch"
-  );
+  await enfileirar(env, alvos, (c) => c.patch_channel_id, [corpo], "patch");
   if (!apenasGuild) await salvarEstado(env, "last_patch_version", versao);
   return { mudou: true, versao, servidores: alvos.length, teste: Boolean(apenasGuild) };
 }
@@ -318,35 +443,20 @@ async function checarNoticias(env, apenasGuild) {
       .filter((n) => !jaPostadas.has(n.url))
       .slice(0, MAXIMO_NOTICIAS_POR_RODADA);
 
-    let ultimaFalha = null;
-    for (const noticia of novas) {
-      try {
-        await enviarMensagem(env, config.news_channel_id, { embeds: [embedDaNoticia(noticia)] });
-        await marcarNoticiaPostada(env, config.guild_id, noticia.url);
-        resumo.postadas++;
-      } catch (err) {
-        ultimaFalha = err.message;
-        console.log(`Falha ao postar notícia em ${config.guild_id}:`, err.message);
-        // 400 é o Discord recusando o conteúdo em si — tentar de novo dá no
-        // mesmo. Como a fila sempre pega as 3 mais antigas pendentes e só sai
-        // dali quem é postado, uma notícia assim travava o servidor para
-        // sempre: foi o que parou o "Hora do Chá" em 04/10/2026. Marca para a
-        // fila andar; outros erros (sem permissão, Discord fora do ar) seguem
-        // sendo tentados de novo.
-        if (/-> 400\b/.test(err.message)) {
-          await marcarNoticiaPostada(env, config.guild_id, noticia.url);
-          resumo.descartadas = (resumo.descartadas ?? 0) + 1;
-        }
-      }
-    }
-
-    // O erro só é limpo quando alguma notícia sai de verdade: rodada sem nada
-    // novo não prova que o canal voltou a funcionar.
-    if (ultimaFalha) {
-      await registrarErroEnvio(env, config.guild_id, "noticias", ultimaFalha).catch(() => {});
-    } else if (novas.length && config.news_last_error) {
-      await limparErroEnvio(env, config.guild_id, "noticias").catch(() => {});
-    }
+    // Entra na fila de envios (ver drenarFila) e já fica marcada como
+    // postada: quem tenta de novo, registra a falha e limpa o erro do
+    // servidor quando volta a funcionar é a fila. Marcar aqui também evita
+    // a notícia travada para sempre que parou o "Hora do Chá" em 04/10/2026.
+    if (!novas.length) continue;
+    await enfileirar(
+      env,
+      [config],
+      (c) => c.news_channel_id,
+      novas.map((n) => ({ embeds: [embedDaNoticia(n)] })),
+      "noticias"
+    );
+    for (const noticia of novas) await marcarNoticiaPostada(env, config.guild_id, noticia.url);
+    resumo.postadas += novas.length;
   }
 
   return resumo;
@@ -423,7 +533,7 @@ async function checarPromocoes(env, apenasGuild) {
   const todos = await listarComAvisoLigado(env, "promocoes");
   const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
   const corpo = { embeds: [embedPromocoes(lista)] };
-  await paraCadaServidor(alvos, env, (c) => enviarMensagem(env, c.canal_do_aviso, corpo), "promocoes");
+  await enfileirar(env, alvos, (c) => c.canal_do_aviso, [corpo], "promocoes");
   if (!apenasGuild) await salvarEstado(env, "promocoes_assinatura", assinatura);
   return { mudou: true, skins: lista.length, servidores: alvos.length };
 }
@@ -453,14 +563,7 @@ async function postarSkinsNovas(env) {
   }
   await salvarEstado(env, "vitrine_skins", JSON.stringify(fila.slice(0, 4))).catch(() => {});
   const alvos = await listarComAvisoLigado(env, "skins");
-  await paraCadaServidor(
-    alvos,
-    env,
-    async (c) => {
-      for (const m of mensagens) await enviarMensagem(env, c.canal_do_aviso, m);
-    },
-    "skins"
-  );
+  await enfileirar(env, alvos, (c) => c.canal_do_aviso, mensagens, "skins");
   // Esvazia antes de qualquer outra coisa poder falhar: repetir o anúncio em
   // todo servidor é pior do que perder um.
   await salvarEstado(env, "skins_para_postar", "[]");
@@ -490,14 +593,7 @@ async function checarYoutube(env, apenasGuild) {
 
   const todos = await listarComAvisoLigado(env, "youtube");
   const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
-  await paraCadaServidor(
-    alvos,
-    env,
-    async (c) => {
-      for (const v of novos) await enviarMensagem(env, c.canal_do_aviso, mensagemVideo(v));
-    },
-    "youtube"
-  );
+  await enfileirar(env, alvos, (c) => c.canal_do_aviso, novos.map(mensagemVideo), "youtube");
   if (!apenasGuild) {
     const atualizados = [...new Set([...videos.map((v) => v.id), ...vistos])].slice(0, 50);
     await salvarEstado(env, "youtube_vistos", JSON.stringify(atualizados));
@@ -892,7 +988,8 @@ async function rotear(request, env, ctx) {
       const noticias = await checarNoticias(env, apenasGuild).catch((err) => ({ erro: err.message }));
       const promocoes = await checarPromocoes(env, apenasGuild).catch((err) => ({ erro: err.message }));
       const youtube = await checarYoutube(env, apenasGuild).catch((err) => ({ erro: err.message }));
-      return json({ servidor: apenasGuild, patch, noticias, promocoes, youtube });
+      const fila = await drenarFila(env, 20).catch((err) => ({ erro: err.message }));
+      return json({ servidor: apenasGuild, patch, noticias, promocoes, youtube, fila });
     }
 
     // Para o Google: o que pode visitar e onde está a lista de páginas.
@@ -1233,6 +1330,9 @@ export default {
     if (evento.cron === CRON_EMOJIS) {
       ctx.waitUntil(
         (async () => {
+          // Fila de avisos primeiro: é o que tem gente esperando.
+          const fila = await drenarFila(env, 30).catch((err) => ({ erro: err.message }));
+          if (fila.enviados || fila.erro) console.log("fila:", JSON.stringify(fila));
           const emojis = await sincronizarEmojis(env).catch((err) => ({ erro: err.message }));
           if (!emojis.completo) console.log("emojis:", JSON.stringify(emojis));
           // Só trabalha quando sai patch novo (ver varrerSkinsNovas).
@@ -1281,7 +1381,23 @@ export default {
         }
         const comandos = await registrarComandosSeMudaram(env).catch((err) => ({ erro: err.message }));
         const vitrine = await atualizarVitrineBuild(env).catch((err) => ({ erro: err.message }));
-        console.log("cron:", JSON.stringify({ patch, noticias, promocoes, skins, youtube, metricas, comandos, vitrine }));
+        // Primeiro lote do que acabou de entrar na fila; o resto sai nas
+        // rodadas de 2 minutos.
+        const fila = await drenarFila(env, 20).catch((err) => ({ erro: err.message }));
+        console.log("cron:", JSON.stringify({ patch, noticias, promocoes, skins, youtube, metricas, comandos, vitrine, fila }));
+
+        // O que não rodou nesta rodada (pulado) fica undefined e não mexe no
+        // estado do alerta. O OP.GG é usado pelos comandos, não pelo cron —
+        // o erro dele vem do que ficou gravado pela última consulta.
+        const rodou = (r) => (r?.pulado ? undefined : r?.erro ?? null);
+        await vigiarProblemas(env, {
+          patch: rodou(patch),
+          noticias: rodou(noticias),
+          promocoes: rodou(promocoes),
+          youtube: rodou(youtube),
+          discord: rodou(metricas),
+          opgg: (await pegarEstado(env, "opgg_erro").catch(() => "")) || null,
+        }).catch((err) => console.log("Não consegui avisar o dono:", err.message));
       })()
     );
   },

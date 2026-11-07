@@ -170,13 +170,14 @@ export async function registrarErroEnvio(env, guildId, funcao, mensagem) {
     .run();
 }
 
-export async function limparErroEnvio(env, guildId, funcao) {
+// `soConsulta: true` devolve a consulta pronta, sem rodar — para entrar num
+// env.DB.batch junto com outras (a fila de envios limpa vários de uma vez).
+export function limparErroEnvio(env, guildId, funcao, { soConsulta = false } = {}) {
   const { texto, quando } = colunasDe(funcao);
-  await env.DB.prepare(
+  const consulta = env.DB.prepare(
     `UPDATE guild_config SET ${texto} = NULL, ${quando} = NULL WHERE guild_id = ?`
-  )
-    .bind(guildId)
-    .run();
+  ).bind(guildId);
+  return soConsulta ? consulta : consulta.run();
 }
 
 // Upsert e não update: um servidor pode estrear antes de ter salvado
