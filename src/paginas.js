@@ -151,27 +151,8 @@ const ESTILO = `
     --alerta-texto: #f3ecda;
     --veu-topo: rgba(227, 219, 201, .94);
   }
-  @media (prefers-color-scheme: light) {
-    :root:not([data-tema="escuro"]) {
-      color-scheme: light;
-      --fundo: #e3dbc9;
-      --superficie: #f3ecda;
-      --superficie-2: #e9e0cb;
-      --linha: #bcae8e;
-      --texto: #1b1d1c;
-      --texto-fraco: #5f5a4e;
-      --latao: #7a5c22;
-      --latao-claro: #4a3613;
-      --latao-escuro: #a98c4a;
-      --verde: #11705f;
-      --verde-escuro: #bfd9ce;
-      --btn-texto: #f3ecda;
-      --grad-titulo: linear-gradient(176deg, #7a5c22 0%, #4a3613 100%);
-      --alerta: #a3302a;
-      --alerta-texto: #f3ecda;
-      --veu-topo: rgba(227, 219, 201, .94);
-    }
-  }
+  /* O escuro é o padrão em qualquer aparelho, mesmo com o celular no modo
+     claro: o claro só entra quando a pessoa escolhe no botão do topo. */
 
   * { box-sizing: border-box; }
   body {
@@ -303,10 +284,6 @@ const ESTILO = `
   .tema .sol { display: none; }
   :root[data-tema="claro"] .tema .sol { display: block; }
   :root[data-tema="claro"] .tema .lua { display: none; }
-  @media (prefers-color-scheme: light) {
-    :root:not([data-tema="escuro"]) .tema .sol { display: block; }
-    :root:not([data-tema="escuro"]) .tema .lua { display: none; }
-  }
 
   /* ---------- botões ---------- */
   .botao {
@@ -974,9 +951,7 @@ ${corpo}
 <script>
   document.getElementById("alternar-tema").addEventListener("click", function () {
     var raiz = document.documentElement;
-    var escuroAgora = raiz.dataset.tema
-      ? raiz.dataset.tema === "escuro"
-      : !window.matchMedia("(prefers-color-scheme: light)").matches;
+    var escuroAgora = raiz.dataset.tema !== "claro";
     raiz.dataset.tema = escuroAgora ? "claro" : "escuro";
     try { localStorage.setItem("tema", raiz.dataset.tema); } catch (e) {}
   });
