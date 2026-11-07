@@ -1519,9 +1519,9 @@ export function landing(clientId, vitrine) {
       <div class="limite centro revelar">
         <h2>Configuração sem código</h2>
         <div class="ornamento"><i></i></div>
-        <p class="aviso" style="max-width:520px;margin:0 auto 26px">Adicione o bot,
-        entre no painel com sua conta do Discord e escolha o canal de cada aviso.
-        O <code>/build</code> funciona assim que o bot entra, sem configurar nada.</p>
+        <p class="aviso" style="max-width:520px;margin:0 auto 26px">Adicione o Ward ao
+        seu servidor, entre no painel com sua conta do Discord e escolha em qual canal
+        cada aviso deve chegar. Leva menos de um minuto.</p>
         <div class="acoes">
           <a class="botao destaque" href="${convite(clientId)}">Adicionar ao seu servidor</a>
         </div>
