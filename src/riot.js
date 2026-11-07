@@ -53,6 +53,16 @@ function urlNotasPatch(versao) {
   return `https://www.leagueoflegends.com/en-us/news/game-updates/league-of-legends-patch-${majorPublico}-${minor}-notes/`;
 }
 
+// A versão como os jogadores conhecem: "16.22.1" do Data Dragon vira
+// "26.22.1". TODO texto que mostra o patch para gente (site, avisos,
+// comandos) passa por aqui — o número cru do Data Dragon só serve para
+// montar URL de ícone e dado. Já houve versão interna escapando para o site.
+export function versaoPublica(versao) {
+  const [major, ...resto] = String(versao ?? "").split(".");
+  if (!/^\d+$/.test(major)) return String(versao ?? "");
+  return [Number(major) + 10, ...resto].join(".");
+}
+
 // Busca o resumo oficial do patch em inglês. Usa o <meta name="description">
 // da própria página — é o texto que a Riot escreve à mão pra aparecer em
 // buscas e compartilhamentos, bem mais estável do que tentar ler o corpo do

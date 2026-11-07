@@ -4,6 +4,7 @@
 import { FRAGMENTOS } from "./builds.js";
 import { faltaConfigurar } from "./db.js";
 import { SITE } from "./discord.js";
+import { versaoPublica } from "./riot.js";
 
 function escapar(texto) {
   return String(texto).replace(/[&<>"']/g, (c) => ({
@@ -1388,7 +1389,7 @@ export function landing(clientId, vitrine) {
              notas completas.`,
             aoVivo(
               "No ar agora",
-              patch ? `<p class="valor-vivo">${escapar(patch)}<small>versão atual do jogo</small></p>` : ""
+              patch ? `<p class="valor-vivo">${escapar(versaoPublica(patch))}<small>versão atual do jogo</small></p>` : ""
             )
           )}
           ${funcao(

@@ -10,6 +10,7 @@ import {
   acharCampeao,
   normalizarNome,
   urlIconeCampeao,
+  versaoPublica,
 } from "./riot.js";
 import { traduzirParaPtBr } from "./traducao.js";
 import { registrarBuildPedida } from "./db.js";
@@ -59,11 +60,6 @@ const ehAram = (interacao) =>
 export const porcentagem = (taxa) => `${(taxa * 100).toFixed(1).replace(".", ",")}%`;
 const milhar = (n) => n.toLocaleString("pt-BR");
 
-// Número público do patch (o Data Dragon fica 10 atrás: 16.21 = 26.21).
-export function patchPublico(versao) {
-  const [major, minor] = String(versao).split(".");
-  return `${Number(major) + 10}.${minor}`;
-}
 
 // Item repetido vira "2× Poção" em vez de aparecer duas vezes.
 function contarIguais(ids) {
@@ -152,7 +148,7 @@ export function embedDaBuild({ campeao, build, dados, emojis, versao, origin }) 
       (build.tier ? ` · Tier ${build.tier}` : "") +
       (outras.length ? `\nTambém jogado em: ${outras.join(", ")} — use a opção \`rota\`.` : ""),
     fields: campos,
-    footer: { text: `Dados: OP.GG · patch ${patchPublico(versao)} · atualiza sozinho conforme o meta` },
+    footer: { text: `Dados: OP.GG · patch ${versaoPublica(versao)} · atualiza sozinho conforme o meta` },
   };
 }
 
@@ -170,14 +166,14 @@ export const COMANDOS = {
         const { url, resumo } = await resumoPatchEmIngles(versao);
         const resumoPt = await traduzirParaPtBr(env, resumo);
         await editarResposta(interacao, {
-          embeds: [{ title: `Patch ${versao}`, url, description: resumoPt, color: 0x0ac8b9 }],
+          embeds: [{ title: `Patch ${versaoPublica(versao)}`, url, description: resumoPt, color: 0x0ac8b9 }],
         });
       } catch (err) {
         console.log("Falha em /patch ao buscar o resumo:", err.message);
         await editarResposta(interacao, {
           embeds: [
             {
-              title: `Patch ${versao}`,
+              title: `Patch ${versaoPublica(versao)}`,
               url: LINK_NOTAS_PATCH,
               description: "Não consegui buscar o resumo agora — clica no título pra ver as notas completas.",
               color: 0x0ac8b9,

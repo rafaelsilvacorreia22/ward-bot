@@ -68,6 +68,7 @@ import {
   todosOsCampeoes,
   acharCampeao,
   urlIconeCampeao,
+  versaoPublica,
 } from "./riot.js";
 import {
   MODOS,
@@ -223,7 +224,10 @@ async function construirEmbedPatch(env) {
   } catch (err) {
     console.log("Não consegui buscar o resumo oficial do patch:", err.message);
   }
-  return { versao, corpo: { embeds: [{ title: `Saiu o patch ${versao}!`, url, description: descricao, color: 0x0ac8b9 }] } };
+  return {
+    versao,
+    corpo: { embeds: [{ title: `Saiu o patch ${versaoPublica(versao)}!`, url, description: descricao, color: 0x0ac8b9 }] },
+  };
 }
 
 // `apenasGuild` existe só para teste manual: limita a postagem a um servidor e
@@ -955,7 +959,7 @@ async function rotear(request, env, ctx) {
       // meio", "build jinx aram"), com o patch para o Google ver que é atual.
       const nomeRota = build?.rota ? ` ${ROTAS[build.rota] ?? ""}` : "";
       const nomeModo = modo === "aram" ? " ARAM" : nomeRota;
-      const patchPub = `${Number(versao.split(".")[0]) + 10}.${versao.split(".")[1]}`;
+      const patchPub = versaoPublica(versao);
       const itensNucleo = (build?.nucleo?.ids ?? []).map((id) => dados.itens[id]?.nome).filter(Boolean).join(", ");
       return paginaHtml(
         `Build ${campeao.nome}${nomeModo} — patch ${patchPub} | Ward`,
