@@ -889,12 +889,16 @@ const ESTILO = `
 // link é colado no Discord ou no WhatsApp.
 const DESCRICAO_PADRAO =
   "Bot de Discord de League of Legends, grátis e em português: /build com a build do meta de cada campeão, " +
-  "aviso de patch novo, notícias oficiais, skins novas e em promoção e vídeos do canal oficial.";
+  "/counter, aviso de patch novo, notícias oficiais, skins novas e em promoção e vídeos do canal oficial.";
+
+// O Discord e o WhatsApp guardam a imagem da prévia pelo endereço. Ao trocar
+// a og.png, suba este número: o endereço muda e eles baixam a imagem nova.
+const VERSAO_OG = 2;
 
 function layout(titulo, corpo, opcoes = {}) {
   const classeMain = opcoes.cheio ? "cheio" : "conteudo";
   const descricao = opcoes.descricao ?? DESCRICAO_PADRAO;
-  const imagem = opcoes.imagem ?? `${SITE}/og.png`;
+  const imagem = opcoes.imagem ?? `${SITE}/og.png?v=${VERSAO_OG}`;
   // Página só para quem está logado (painel, admin) não deve ir para o
   // Google — e nem tem conteúdo útil para quem chega por lá.
   const indexar = opcoes.indexar !== false;
