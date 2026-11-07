@@ -20,6 +20,16 @@
   "ai": {
     "binding": "AI"
   },
+  // Limite de /build, /build-aram e /counter: 20 por minuto por servidor.
+  // Impede que um servidor sozinho (de contas falsas, por exemplo) gaste a
+  // cota diária grátis do Worker e derrube o bot para todo mundo.
+  "ratelimits": [
+    {
+      "name": "LIMITE_COMANDOS",
+      "namespace_id": "1001",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ],
   "assets": {
     "directory": "./public"
   },
