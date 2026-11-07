@@ -1,8 +1,8 @@
 # Divulgação do Ward
 
-Textos prontos para colar. Link do site (adicionar + painel): https://ward-bot.ghostbot.workers.dev
+Textos prontos para colar. Link do site (adicionar + painel): https://wardbot.com.br
 Ao colar esse link no Discord, WhatsApp ou Facebook, aparece uma prévia com imagem.
-O link de uma build específica (ex.: https://ward-bot.ghostbot.workers.dev/build/Jinx) aparece com a arte do campeão.
+O link de uma build específica (ex.: https://wardbot.com.br/build/Jinx) aparece com a arte do campeão.
 
 ---
 
@@ -18,9 +18,9 @@ Use o texto do top.gg (descrição longa) em todas. Versões curtas:
 
 **Tags:** league of legends, lol, games, brasil, portuguese, utility, notifications, esports
 **Prefixo:** `/` (só comandos de barra)
-**Site / suporte:** https://ward-bot.ghostbot.workers.dev
-**Privacidade:** https://ward-bot.ghostbot.workers.dev/privacidade
-**Termos:** https://ward-bot.ghostbot.workers.dev/termos
+**Site / suporte:** https://wardbot.com.br
+**Privacidade:** https://wardbot.com.br/privacidade
+**Termos:** https://wardbot.com.br/termos
 
 ---
 
@@ -32,7 +32,7 @@ Use o texto do top.gg (descrição longa) em todas. Versões curtas:
 > • avisa sozinho quando sai patch novo, notícia oficial, skin nova ou promoção na loja
 > • tudo em português e configurado por um painel, sem código
 >
-> Se quiser testar: https://ward-bot.ghostbot.workers.dev
+> Se quiser testar: https://wardbot.com.br
 > Qualquer coisa que faltar, me fala que eu ajusto.
 
 ---
@@ -42,7 +42,7 @@ Use o texto do top.gg (descrição longa) em todas. Versões curtas:
 > Fala, {nome}! Curto suas lives de LoL. Fiz um bot de Discord gratuito, o **Ward**, que pode ajudar teu servidor:
 > a galera digita `/build {campeão}` e recebe a build do meta na hora, e o bot avisa patch novo, skins em
 > promoção e notícias oficiais sem ninguém precisar postar.
-> Se curtir, adiciona de graça aqui: https://ward-bot.ghostbot.workers.dev
+> Se curtir, adiciona de graça aqui: https://wardbot.com.br
 > Se quiser alguma coisa específica pro teu servidor, eu faço.
 
 ---
@@ -58,7 +58,7 @@ Use o texto do top.gg (descrição longa) em todas. Versões curtas:
 > - `/build-aram Fizz` → o mesmo pro ARAM
 > - avisos automáticos de patch novo, notícias oficiais, skins novas e skins em promoção
 >
-> Grátis, sem propaganda. Dá pra ver as builds direto no site também: https://ward-bot.ghostbot.workers.dev/build
+> Grátis, sem propaganda. Dá pra ver as builds direto no site também: https://wardbot.com.br/build
 >
 > Aceito sugestão do que adicionar!
 
@@ -69,7 +69,7 @@ Use o texto do top.gg (descrição longa) em todas. Versões curtas:
 ## 5. WhatsApp / grupos rápidos
 
 > Fiz um bot de LoL pro Discord 🎮 Digita `/build` + campeão e ele te dá a build do meta na hora, com runas e skills.
-> Também avisa patch, notícia e skin em promoção. Grátis: https://ward-bot.ghostbot.workers.dev
+> Também avisa patch, notícia e skin em promoção. Grátis: https://wardbot.com.br
 
 ---
 

@@ -6,6 +6,16 @@
   "observability": {
     "enabled": true
   },
+  // Domínio próprio. O endereço antigo (ward-bot.ghostbot.workers.dev)
+  // continua respondendo, para links já espalhados não quebrarem.
+  "routes": [
+    { "pattern": "wardbot.com.br", "custom_domain": true },
+    { "pattern": "www.wardbot.com.br", "custom_domain": true }
+  ],
+  // Sem isto, ter "routes" desliga o *.workers.dev por padrão — e o
+  // endereço antigo para de responder (aconteceu no primeiro deploy com o
+  // domínio, por alguns segundos).
+  "workers_dev": true,
   "vars": {
     "DISCORD_CLIENT_ID": "1554155800099037184",
     "DISCORD_PUBLIC_KEY": "b965f17aab300a2c003fd8cdf4552751b50e5cd2a3002a9b49e3e6b7bc5b4b2b"
