@@ -55,8 +55,8 @@ import {
   AVISOS_DO_PAINEL,
   faltaConfigurar,
   listarAvisosAoDono,
-  diaBrasil,
-  registrarAcesso,
+  registrarVista,
+  marcarPessoa,
   registrarEvento,
   salvarMetricaDiaria,
   limparVisitantesAntigos,
@@ -743,54 +743,104 @@ async function registrarComandosSeMudaram(env) {
 
 // ---------- contador de acessos do site ----------
 
-// Robôs (Google, prévia de link do Discord/WhatsApp, monitores) não contam
-// como visita: inflariam tudo e não são gente.
-const NAVEGADOR_ROBO = /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|telegram|discord|embed|monitor|curl|wget|python|headless|lighthouse/i;
+// Como funciona (desde 08/11/2026 — ver migracoes/0013):
+//
+// 1. A página, já aberta no navegador e visível na tela, manda um aviso
+//    curto para /v (ver SINAL_DE_VISTA em paginas.js). Robô de busca, prévia
+//    de link e programa que só baixa o HTML não rodam esse código — antes a
+//    contagem era feita na entrega do HTML e um único robô passando pelo
+//    mapa do site virava centenas de "visitas".
+// 2. Mesmo assim, navegador de robô ou vindo de data center (Amazon, Google
+//    Cloud, Azure...) é barrado: gente de verdade não navega de servidor.
+// 3. A pessoa é o IP: o mesmo IP conta como uma pessoa só, e a mesma página
+//    vista de novo no mesmo dia não soma.
+// 4. O dono do bot não conta: abrir o /admin/uso deixa um cookie no aparelho
+//    que tira aquele navegador da contagem.
 
-// /build/Fizz fica como está (dá para ver quais campeões são vistos); o
-// painel de cada servidor vira um caminho só, para não espalhar ids.
-function caminhoParaContar(pathname) {
-  if (/^\/dashboard\/\d+/.test(pathname)) return "/dashboard/servidor";
-  return pathname;
+const NAVEGADOR_ROBO =
+  /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|telegram|discord|embed|monitor|curl|wget|python|headless|lighthouse|httpclient|java\/|go-http|axios|node-fetch|powershell|scrapy|phantom|selenium|puppeteer|playwright/i;
+const REDE_DE_DATA_CENTER =
+  /amazon|aws|google cloud|google llc|microsoft|azure|digitalocean|ovh|hetzner|linode|akamai|oracle|alibaba|tencent|contabo|vultr|choopa|scaleway|leaseweb|m247|datacamp|cloudflare|hostinger|hostgator|locaweb|kinghost|fastly|zenlayer|psychz|colocrossing|servers\.com|hosting|data ?cent(er|re)/i;
+
+function ehRobo(request) {
+  const navegador = request.headers.get("User-Agent") ?? "";
+  if (!navegador || NAVEGADOR_ROBO.test(navegador)) return true;
+  return REDE_DE_DATA_CENTER.test(request.cf?.asOrganization ?? "");
 }
 
-// Domínio de onde a pessoa veio, agrupado do jeito que interessa.
-function origemDaVisita(request, host) {
-  const referer = request.headers.get("Referer");
+const COOKIE_DONO = "ward_dono";
+
+// Código da pessoa: hash de IP + segredo. Sem o segredo não dá para
+// recalcular de fora, e o IP em si nunca é guardado.
+async function codigoDaPessoa(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP") ?? "";
+  const dados = new TextEncoder().encode(`${ip}|${env.SESSION_SECRET ?? ""}`);
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", dados))]
+    .slice(0, 12)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Só páginas que existem entram na conta (o aviso vem do navegador, então
+// qualquer um poderia mandar um caminho inventado). /build/Fizz fica como
+// está para dar para ver quais campeões são vistos.
+function caminhoParaContar(caminho) {
+  if (typeof caminho !== "string") return null;
+  if (/^\/dashboard\/\d+/.test(caminho)) return "/dashboard/servidor";
+  if (/^\/build\/[A-Za-z]{2,20}$/.test(caminho)) return caminho;
+  return ["/", "/build", "/dashboard", "/privacidade", "/termos"].includes(caminho) ? caminho : null;
+}
+
+// Por onde a pessoa chegou. Primeiro vale a etiqueta do link
+// (wardbot.com.br/?ref=tiktok) — é o único jeito de saber de onde vem quem
+// clica dentro do app do Discord, que não diz de onde a pessoa veio. Sem
+// etiqueta, usa o site anterior (Referer), agrupado do jeito que interessa.
+function origemDaVisita(busca, referer) {
+  const etiqueta = /[?&](?:ref|utm_source)=([a-z0-9._-]{1,30})/i.exec(busca ?? "");
+  if (etiqueta) return etiqueta[1].toLowerCase();
   if (!referer) return "direto";
   try {
-    const dominio = new URL(referer).hostname.replace(/^www\./, "");
-    if (dominio === host) return "o próprio site";
+    const dominio = new URL(referer).hostname.replace(/^(www|m|l|lm)\./, "");
+    if (dominio === new URL(SITE).hostname || dominio.endsWith("workers.dev")) return "direto";
     if (/(^|\.)google\./.test(dominio)) return "google";
     if (/(^|\.)bing\.com$/.test(dominio)) return "bing";
+    if (/duckduckgo\.com$/.test(dominio)) return "duckduckgo";
     if (/discord(app)?\.com$/.test(dominio)) return "discord";
-    return dominio;
+    if (/(^|\.)t\.co$|(^|\.)x\.com$|twitter\.com$/.test(dominio)) return "x (twitter)";
+    if (/youtube\.com$|youtu\.be$/.test(dominio)) return "youtube";
+    if (/facebook\.com$/.test(dominio)) return "facebook";
+    if (/instagram\.com$/.test(dominio)) return "instagram";
+    if (/tiktok\.com$/.test(dominio)) return "tiktok";
+    if (/reddit\.com$/.test(dominio)) return "reddit";
+    return dominio.slice(0, 40);
   } catch {
     return "direto";
   }
 }
 
-async function contarVisita(request, resposta, env) {
-  const url = new URL(request.url);
-  if (request.method !== "GET" || resposta.status !== 200) return;
-  if (!(resposta.headers.get("Content-Type") ?? "").includes("text/html")) return;
-  if (url.pathname.startsWith("/admin")) return; // o dono do bot olhando não conta
-  const navegador = request.headers.get("User-Agent") ?? "";
-  if (!navegador || NAVEGADOR_ROBO.test(navegador)) return;
-
-  // Hash de (dia + IP + navegador + segredo): conta a mesma pessoa uma vez por
-  // dia sem guardar o IP — e o segredo impede de recalcular o hash de fora.
-  const ip = request.headers.get("CF-Connecting-IP") ?? "";
-  const dados = new TextEncoder().encode(`${diaBrasil()}|${ip}|${navegador}|${env.SESSION_SECRET ?? ""}`);
-  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", dados))]
-    .slice(0, 12)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  await registrarAcesso(env, {
-    caminho: caminhoParaContar(url.pathname),
-    origem: origemDaVisita(request, url.hostname),
-    hashVisitante: hash,
+// Recebe o aviso "esta página foi vista" mandado pela própria página.
+async function receberVista(request, texto, env) {
+  // Só vale vindo do próprio site (o navegador sempre manda o Origin aqui).
+  const origemPedido = request.headers.get("Origin") ?? "";
+  if (origemPedido !== new URL(SITE).origin && !origemPedido.startsWith("http://localhost")) return;
+  if ((request.headers.get("Cookie") ?? "").includes(`${COOKIE_DONO}=1`)) return;
+  if (ehRobo(request)) {
+    await registrarEvento(env, "robo_barrado");
+    return;
+  }
+  if (texto.length > 2000) return;
+  let dados;
+  try {
+    dados = JSON.parse(texto);
+  } catch {
+    return;
+  }
+  const caminho = caminhoParaContar(dados.c);
+  if (!caminho) return;
+  await registrarVista(env, {
+    hash: await codigoDaPessoa(request, env),
+    caminho,
+    origem: origemDaVisita(dados.q, dados.r),
   });
 }
 
@@ -872,7 +922,7 @@ async function rotear(request, env, ctx) {
       // A saúde da fonte das builds não é de nenhum servidor em particular,
       // então entra aqui como estado global do bot. O "Avisar o dono" só
       // aparece para quem entrou logado (não pela chave na URL).
-      return paginaHtml(
+      const pagina = paginaHtml(
         "Uso do Ward",
         paginaUso(servidores, configs, uso, {
           opggErro,
@@ -886,6 +936,13 @@ async function rotear(request, env, ctx) {
         }),
         { indexar: false }
       );
+      // Tira este aparelho da contagem de acessos: o dono testando o site não
+      // é visitante. Vale por um ano, em cada navegador onde ele abrir aqui.
+      pagina.headers.append(
+        "Set-Cookie",
+        `${COOKIE_DONO}=1; Path=/; Max-Age=31536000; Secure; SameSite=Lax`
+      );
+      return pagina;
     }
 
     // "Tirar o Ward deste servidor" do painel de uso, para servidor suspeito
@@ -1103,14 +1160,27 @@ async function rotear(request, env, ctx) {
     if (url.pathname === "/auth/callback" && request.method === "GET") {
       const resposta = await tratarCallback(env, request, origin);
       // Login que deu certo termina em redirecionamento para o painel.
-      if (resposta.status === 302) ctx.waitUntil(registrarEvento(env, "login").catch(() => {}));
+      if (resposta.status === 302) {
+        ctx.waitUntil(registrarEvento(env, "login").catch(() => {}));
+        ctx.waitUntil(codigoDaPessoa(request, env).then((h) => marcarPessoa(env, h, "entrou")).catch(() => {}));
+      }
       return resposta;
+    }
+
+    // Aviso de página vista, mandado pela própria página (ver receberVista).
+    // Responde na hora; a conta é feita depois.
+    if (url.pathname === "/v" && request.method === "POST") {
+      // O corpo tem de ser lido antes da resposta sair.
+      const texto = await request.text();
+      ctx.waitUntil(receberVista(request, texto, env).catch((err) => console.log("Não contei a vista:", err.message)));
+      return new Response(null, { status: 204 });
     }
 
     // Todo botão "Adicionar ao Discord" do site passa por aqui: conta o
     // clique e segue para a tela de autorização do Discord.
     if (url.pathname === "/convidar" && request.method === "GET") {
       ctx.waitUntil(registrarEvento(env, "convite").catch(() => {}));
+      ctx.waitUntil(codigoDaPessoa(request, env).then((h) => marcarPessoa(env, h, "convidou")).catch(() => {}));
       return new Response(null, {
         status: 302,
         headers: {
@@ -1333,8 +1403,6 @@ export default {
       console.log("Erro não tratado:", err.stack ?? err.message);
       return paginaHtml("Deu problema", paginaErro());
     }
-    // Conta a visita depois de a página já ter saído — não atrasa ninguém.
-    ctx.waitUntil(contarVisita(request, resposta, env).catch((err) => console.log("Não contei a visita:", err.message)));
     return resposta;
   },
 

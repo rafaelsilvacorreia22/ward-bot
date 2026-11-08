@@ -251,22 +251,31 @@ export function diaBrasil(data = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(data);
 }
 
-// Uma visita a uma página: soma na página, na origem e registra o visitante
-// único do dia (só o hash — ver migracoes/0011). Um batch só, para gastar
-// uma consulta por visita.
-export async function registrarAcesso(env, { caminho, origem, hashVisitante }) {
+// Uma página vista por uma pessoa (ver migracoes/0013). Pessoa nova ganha
+// linha com a origem de chegada; pessoa que já existe só atualiza o último
+// dia (e soma um dia se for outro dia). Página repetida no mesmo dia e
+// presença repetida são ignoradas — recarregar não conta de novo.
+export async function registrarVista(env, { hash, caminho, origem }) {
   const dia = diaBrasil();
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO acessos (dia, caminho, visitas) VALUES (?, ?, 1)
-       ON CONFLICT(dia, caminho) DO UPDATE SET visitas = visitas + 1`
-    ).bind(dia, caminho),
-    env.DB.prepare(
-      `INSERT INTO origens (dia, origem, visitas) VALUES (?, ?, 1)
-       ON CONFLICT(dia, origem) DO UPDATE SET visitas = visitas + 1`
-    ).bind(dia, origem),
-    env.DB.prepare("INSERT OR IGNORE INTO visitantes (dia, hash) VALUES (?, ?)").bind(dia, hashVisitante),
+      `INSERT INTO pessoas (hash, primeiro_dia, ultimo_dia, origem) VALUES (?, ?, ?, ?)
+       ON CONFLICT(hash) DO UPDATE SET
+         dias = dias + (CASE WHEN ultimo_dia < excluded.ultimo_dia THEN 1 ELSE 0 END),
+         ultimo_dia = excluded.ultimo_dia`
+    ).bind(hash, dia, dia, origem),
+    env.DB.prepare("INSERT OR IGNORE INTO presencas (dia, hash) VALUES (?, ?)").bind(dia, hash),
+    env.DB.prepare("INSERT OR IGNORE INTO vistas (dia, hash, caminho) VALUES (?, ?, ?)").bind(dia, hash, caminho),
   ]);
+}
+
+// Marca que a pessoa clicou em "Adicionar ao Discord" (convidou) ou entrou
+// no painel (entrou). Só vale para quem já foi contado como pessoa de
+// verdade — robô que segue o link não tem linha e não soma.
+const MARCAS_DE_PESSOA = new Set(["convidou", "entrou"]);
+export async function marcarPessoa(env, hash, marca) {
+  if (!MARCAS_DE_PESSOA.has(marca)) return;
+  await env.DB.prepare(`UPDATE pessoas SET ${marca} = 1 WHERE hash = ?`).bind(hash).run();
 }
 
 export async function registrarEvento(env, evento) {
@@ -296,23 +305,53 @@ export async function salvarMetricaDiaria(env, servidores, membros) {
     .run();
 }
 
-// Visitante único só serve para contar o dia; depois de 60 dias sai.
+// O código de cada pessoa só vive enquanto ela volta: 90 dias sem aparecer e
+// some tudo dela. As tabelas antigas da 0011 (visitantes) também são limpas.
 export async function limparVisitantesAntigos(env) {
-  const limite = diaBrasil(new Date(Date.now() - 60 * 86400000));
-  await env.DB.prepare("DELETE FROM visitantes WHERE dia < ?").bind(limite).run();
+  const limite = diaBrasil(new Date(Date.now() - 90 * 86400000));
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM visitantes WHERE dia < ?").bind(limite),
+    env.DB.prepare("DELETE FROM presencas WHERE dia < ?").bind(limite),
+    env.DB.prepare("DELETE FROM vistas WHERE dia < ?").bind(limite),
+    env.DB.prepare("DELETE FROM pessoas WHERE ultimo_dia < ?").bind(limite),
+  ]);
 }
 
-// Tudo que o painel de administração mostra, dos últimos 30 dias.
+// Tudo que o painel de administração mostra, dos últimos 30 dias. "Pessoa"
+// conta uma vez no período inteiro, não uma vez por dia.
 export async function estatisticasDoSite(env) {
-  const desde = diaBrasil(new Date(Date.now() - 29 * 86400000));
-  const [porDia, unicosPorDia, paginas, origens, eventos, builds, metricas] = await env.DB.batch([
-    env.DB.prepare("SELECT dia, SUM(visitas) AS visitas FROM acessos WHERE dia >= ? GROUP BY dia").bind(desde),
-    env.DB.prepare("SELECT dia, COUNT(*) AS unicos FROM visitantes WHERE dia >= ? GROUP BY dia").bind(desde),
+  const dia = (n) => diaBrasil(new Date(Date.now() - n * 86400000));
+  const desde = dia(29);
+  const desde7 = dia(6);
+  const [porDia, vistasPorDia, totais, paginas, canais, eventos, builds, metricas] = await env.DB.batch([
     env.DB.prepare(
-      "SELECT caminho, SUM(visitas) AS visitas FROM acessos WHERE dia >= ? GROUP BY caminho ORDER BY visitas DESC LIMIT 12"
+      `SELECT p.dia, COUNT(*) AS pessoas, SUM(CASE WHEN pe.primeiro_dia = p.dia THEN 1 ELSE 0 END) AS novas
+       FROM presencas p JOIN pessoas pe ON pe.hash = p.hash
+       WHERE p.dia >= ? GROUP BY p.dia`
     ).bind(desde),
+    env.DB.prepare("SELECT dia, COUNT(*) AS vistas FROM vistas WHERE dia >= ? GROUP BY dia").bind(desde),
     env.DB.prepare(
-      "SELECT origem, SUM(visitas) AS visitas FROM origens WHERE dia >= ? GROUP BY origem ORDER BY visitas DESC LIMIT 10"
+      `SELECT
+         (SELECT COUNT(DISTINCT hash) FROM presencas WHERE dia >= ?1) AS pessoas30,
+         (SELECT COUNT(DISTINCT hash) FROM presencas WHERE dia >= ?2) AS pessoas7,
+         (SELECT COUNT(*) FROM vistas WHERE dia >= ?1) AS vistas30,
+         (SELECT COUNT(DISTINCT hash) FROM vistas WHERE dia >= ?1 AND caminho LIKE '/build%') AS viramBuild30,
+         (SELECT COUNT(*) FROM pessoas WHERE ultimo_dia >= ?1 AND dias > 1) AS voltaram30,
+         (SELECT COUNT(*) FROM pessoas WHERE ultimo_dia >= ?1 AND convidou = 1) AS convidaram30,
+         (SELECT COUNT(*) FROM pessoas WHERE ultimo_dia >= ?1 AND entrou = 1) AS entraram30,
+         (SELECT MIN(primeiro_dia) FROM pessoas) AS inicio`
+    ).bind(desde, desde7),
+    env.DB.prepare(
+      `SELECT caminho, COUNT(DISTINCT hash) AS pessoas FROM vistas WHERE dia >= ?
+       GROUP BY caminho ORDER BY pessoas DESC LIMIT 15`
+    ).bind(desde),
+    // Canal = por onde a pessoa chegou na primeira vez. É a tabela que diz
+    // qual divulgação funciona: quantos chegaram e quantos clicaram em
+    // adicionar.
+    env.DB.prepare(
+      `SELECT origem, COUNT(*) AS pessoas, SUM(convidou) AS convidaram, SUM(entrou) AS entraram,
+              SUM(CASE WHEN dias > 1 THEN 1 ELSE 0 END) AS voltaram
+       FROM pessoas WHERE primeiro_dia >= ? GROUP BY origem ORDER BY pessoas DESC, convidaram DESC LIMIT 20`
     ).bind(desde),
     env.DB.prepare("SELECT dia, evento, total FROM eventos WHERE dia >= ?").bind(desde),
     env.DB.prepare("SELECT campeao, modo, total, ultimo FROM builds_pedidas ORDER BY total DESC LIMIT 12"),
@@ -320,9 +359,10 @@ export async function estatisticasDoSite(env) {
   ]);
   return {
     porDia: porDia.results,
-    unicosPorDia: unicosPorDia.results,
+    vistasPorDia: vistasPorDia.results,
+    totais: totais.results[0] ?? {},
     paginas: paginas.results,
-    origens: origens.results,
+    canais: canais.results,
     eventos: eventos.results,
     builds: builds.results,
     metricas: metricas.results,

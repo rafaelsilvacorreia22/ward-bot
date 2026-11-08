@@ -657,6 +657,26 @@ const ESTILO = `
   .tabela-estat td { padding: 7px 4px; border-bottom: 1px solid var(--linha); }
   .tabela-estat td:last-child { text-align: right; font-weight: 600; color: var(--latao-claro); white-space: nowrap; }
   .tabela-estat code { background: none; border: 0; padding: 0; }
+  .tabela-estat th {
+    padding: 6px 4px; border-bottom: 1px solid var(--linha); text-align: right;
+    font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--texto-fraco);
+  }
+  .tabela-estat th:first-child { text-align: left; }
+  .tabela-estat.colunas td { text-align: right; white-space: nowrap; }
+  .tabela-estat.colunas td:first-child { text-align: left; white-space: normal; font-weight: 400; color: var(--texto); }
+  .tabela-estat.colunas td:not(:first-child):not(:last-child) { color: var(--texto); font-weight: 400; }
+  .rolagem-x { overflow-x: auto; }
+  .glossario { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 6px 0 0; }
+  .glossario div { border-left: 2px solid var(--latao-escuro); padding: 2px 0 2px 12px; }
+  .glossario dt { font-family: "Big Shoulders Display", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--latao); }
+  .glossario dd { margin: 2px 0 0; font-size: .88rem; color: var(--texto-fraco); }
+  .funil { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .funil-etapa { position: relative; padding: 9px 12px; background: var(--superficie-2); border: 1px solid var(--linha); display: flex; justify-content: space-between; gap: 10px; font-size: .92rem; }
+  .funil-etapa i { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--verde) 22%, transparent); }
+  .funil-etapa span, .funil-etapa strong { position: relative; }
+  .funil-etapa strong { color: var(--latao-claro); white-space: nowrap; }
+  .links-ref { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
+  .links-ref code { font-size: .85rem; user-select: all; }
   .sobe { color: var(--verde); font-weight: 600; }
   .desce { color: var(--alerta); font-weight: 600; }
   main.conteudo .duas-colunas .cartao { margin: 16px 0; }
@@ -953,6 +973,31 @@ ${opcoes.caminho ? `<meta property="og:url" content="${SITE}${escapar(opcoes.cam
 ${corpo}
 </main>
 <script>
+  // Contador de acessos: avisa o Ward que esta página foi vista, só quando
+  // ela está mesmo na tela (aba em segundo plano e pré-carregamento não
+  // contam). A etiqueta ?ref= sai do endereço depois de lida, para não ir
+  // junto quando a pessoa compartilhar o link.
+  (function () {
+    if (location.pathname.indexOf("/admin") === 0) return;
+    var enviado = false;
+    function enviar() {
+      if (enviado || document.visibilityState !== "visible" || document.prerendering) return;
+      enviado = true;
+      try {
+        navigator.sendBeacon("/v", JSON.stringify({ c: location.pathname, q: location.search, r: document.referrer }));
+        var p = new URLSearchParams(location.search);
+        if (p.has("ref") || p.has("utm_source")) {
+          p.delete("ref"); p.delete("utm_source");
+          var resto = p.toString();
+          history.replaceState(null, "", location.pathname + (resto ? "?" + resto : "") + location.hash);
+        }
+      } catch (e) {}
+    }
+    enviar();
+    document.addEventListener("visibilitychange", enviar);
+    document.addEventListener("prerenderingchange", enviar);
+  })();
+
   document.getElementById("alternar-tema").addEventListener("click", function () {
     var raiz = document.documentElement;
     var escuroAgora = raiz.dataset.tema !== "claro";
@@ -1675,13 +1720,14 @@ export function paginaPrivacidade() {
 
     <div class="cartao">
       <h2>Contagem de visitas ao site</h2>
-      <p>O site conta quantas visitas cada página recebe por dia, de qual site
-      a pessoa veio (por exemplo, Google ou Discord) e quantas pessoas
-      diferentes visitaram no dia. Para saber se é a mesma pessoa, usa um
-      código embaralhado que muda todo dia e não permite descobrir o IP, a
-      conta nem nada de quem visitou — o IP em si não é guardado. Esses
-      códigos são apagados depois de 60 dias. Não há cookies de rastreamento
-      nem ferramentas de terceiros.</p>
+      <p>O site conta quantas pessoas diferentes o visitam, quais páginas elas
+      abrem, por qual site ou link chegaram (por exemplo, Google ou um link
+      divulgado) e se clicaram em adicionar o Ward. Para não contar a mesma
+      pessoa duas vezes, guarda um código embaralhado feito a partir do
+      endereço de internet (IP) — o código não permite descobrir o IP, a conta
+      nem nada de quem visitou, e o IP em si não é guardado. O código é
+      apagado depois de 90 dias sem a pessoa voltar ao site. Não há cookies de
+      rastreamento nem ferramentas de terceiros.</p>
     </div>
 
     <div class="cartao">
@@ -1766,33 +1812,49 @@ function painelEstatisticas(est) {
   // Os 30 dias, do mais antigo para hoje (datas no fuso de Brasília).
   const base = new Date(`${est.hoje}T12:00:00Z`).getTime();
   const dias = Array.from({ length: 30 }, (_, i) => new Date(base - (29 - i) * 86400000).toISOString().slice(0, 10));
-  const visitas = new Map(est.porDia.map((r) => [r.dia, r.visitas]));
-  const unicos = new Map(est.unicosPorDia.map((r) => [r.dia, r.unicos]));
-  const somaEm = (mapa, n) => dias.slice(-n).reduce((t, d) => t + (mapa.get(d) ?? 0), 0);
+  const pessoasDia = new Map(est.porDia.map((r) => [r.dia, r.pessoas]));
+  const novasDia = new Map(est.porDia.map((r) => [r.dia, r.novas]));
+  const vistasDia = new Map(est.vistasPorDia.map((r) => [r.dia, r.vistas]));
   const eventoEm = (nome, n) =>
     est.eventos.filter((e) => e.evento === nome && dias.slice(-n).includes(e.dia)).reduce((t, e) => t + e.total, 0);
 
-  const visitantes30 = somaEm(unicos, 30);
-  const convites30 = eventoEm("convite", 30);
-  const conversao = visitantes30 ? `${((convites30 / visitantes30) * 100).toFixed(1).replace(".", ",")}%` : "—";
+  const t = est.totais;
   const n = (v) => Number(v ?? 0).toLocaleString("pt-BR");
+  const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1).replace(".", ",")}%` : "—");
   const dataCurta = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 
   const tile = (valor, rotulo) => `<div class="tile"><strong>${valor}</strong><span>${rotulo}</span></div>`;
 
-  // Gráfico de barras: visitas (barra clara) e visitantes únicos (barra cheia).
-  const maior = Math.max(1, ...dias.map((d) => visitas.get(d) ?? 0));
+  // Gráfico: pessoas no dia (barra clara) e, dentro dela, quantas eram
+  // novas (barra verde). A diferença são as que voltaram.
+  const maior = Math.max(1, ...dias.map((d) => pessoasDia.get(d) ?? 0));
   const barras = dias
     .map((d, i) => {
-      const v = visitas.get(d) ?? 0;
-      const u = unicos.get(d) ?? 0;
-      return `<div class="barra" title="${dataCurta(d)}: ${n(v)} visitas, ${n(u)} visitantes">
-          <span class="barra-total" style="height:${(v / maior) * 100}%"></span>
-          <span class="barra-unicos" style="height:${(u / maior) * 100}%"></span>
+      const p = pessoasDia.get(d) ?? 0;
+      const novas = novasDia.get(d) ?? 0;
+      return `<div class="barra" title="${dataCurta(d)}: ${n(p)} pessoas (${n(novas)} novas, ${n(p - novas)} voltaram) · ${n(vistasDia.get(d))} páginas vistas">
+          <span class="barra-total" style="height:${(p / maior) * 100}%"></span>
+          <span class="barra-unicos" style="height:${(novas / maior) * 100}%"></span>
           ${i % 5 === 4 || i === 29 ? `<small>${dataCurta(d)}</small>` : ""}
         </div>`;
     })
     .join("");
+
+  // Canais: por onde cada pessoa chegou na primeira vez, e o que fez depois.
+  const nomeCanal = (o) => (o === "direto" ? "direto <span class=\"fraco\">(sem link de origem)</span>" : escapar(o));
+  const linhasCanais = est.canais
+    .map(
+      (c) => `<tr><td>${nomeCanal(c.origem)}</td><td>${n(c.pessoas)}</td><td>${n(c.convidaram)}</td>
+        <td>${pct(c.convidaram, c.pessoas)}</td><td>${n(c.voltaram)}</td></tr>`
+    )
+    .join("");
+
+  // Funil dos 30 dias: de quem chegou até quem clicou em adicionar.
+  const etapa = (rotulo, valor) =>
+    `<div class="funil-etapa"><i style="width:${t.pessoas30 ? Math.min(100, (valor / t.pessoas30) * 100) : 0}%"></i>
+      <span>${rotulo}</span><strong>${n(valor)} · ${pct(valor, t.pessoas30)}</strong></div>`;
+
+  const desde = t.inicio ? dataCurta(t.inicio) : dataCurta(est.hoje);
 
   const tabela = (titulo, linhas, vazio) => `
       <div class="cartao">
@@ -1824,30 +1886,70 @@ function painelEstatisticas(est) {
   return `
     <div class="cartao">
       <h2>Site — últimos 30 dias</h2>
+      <p class="fraco">Contagem nova desde ${desde}: só conta quem abriu a página
+      num navegador de verdade, cada pessoa uma vez, e você não entra na conta.
+      Os números de antes estavam inflados por robôs e pelos testes.</p>
       <div class="tiles">
-        ${tile(n(unicos.get(est.hoje)), "visitantes hoje")}
-        ${tile(n(visitas.get(est.hoje)), "visitas hoje")}
-        ${tile(n(somaEm(unicos, 7)), "visitantes em 7 dias")}
-        ${tile(n(visitantes30), "visitantes em 30 dias")}
-        ${tile(n(somaEm(visitas, 30)), "visitas em 30 dias")}
-        ${tile(n(convites30), "cliques em adicionar")}
-        ${tile(conversao, "visitantes que clicaram em adicionar")}
-        ${tile(n(eventoEm("login", 30)), "logins no painel")}
+        ${tile(n(pessoasDia.get(est.hoje)), "pessoas hoje")}
+        ${tile(n(t.pessoas7), "pessoas em 7 dias")}
+        ${tile(n(t.pessoas30), "pessoas em 30 dias")}
+        ${tile(n(t.vistas30), "páginas vistas em 30 dias")}
+        ${tile(n(t.voltaram30), "pessoas que voltaram outro dia")}
+        ${tile(n(t.convidaram30), "pessoas que clicaram em adicionar")}
+        ${tile(pct(t.convidaram30, t.pessoas30), "das pessoas clicaram em adicionar")}
+        ${tile(n(eventoEm("robo_barrado", 30)), "acessos de robô barrados")}
       </div>
-      <div class="grafico" aria-label="Visitas por dia">${barras}</div>
-      <p class="fraco legenda"><i class="leg-total"></i> visitas <i class="leg-unicos"></i> visitantes únicos ·
-      visitante único é contado por dia, sem guardar IP; robôs não entram na conta.</p>
+      <dl class="glossario">
+        <div><dt>Pessoa</dt><dd>Um endereço de internet (IP) diferente. Conta uma vez só no
+          período, não importa quantas vezes entrou ou recarregou.</dd></div>
+        <div><dt>Página vista</dt><dd>Cada página diferente que uma pessoa abriu no dia. Abrir a
+          mesma página de novo no mesmo dia não soma.</dd></div>
+        <div><dt>Voltou</dt><dd>Pessoa que apareceu em mais de um dia — sinal de que o site
+          (ou o /build no site) foi útil.</dd></div>
+      </dl>
+      <div class="grafico" aria-label="Pessoas por dia">${barras}</div>
+      <p class="fraco legenda"><i class="leg-total"></i> pessoas no dia <i class="leg-unicos"></i> pessoas novas
+      (a parte clara acima do verde são as que voltaram).</p>
     </div>
+
+    <div class="cartao">
+      <h2>De onde vêm as pessoas</h2>
+      <p class="fraco">Por onde cada pessoa chegou na primeira vez, e o que fez depois. É esta
+      tabela que mostra qual divulgação vale a pena.</p>
+      ${
+        linhasCanais
+          ? `<div class="rolagem-x"><table class="tabela-estat colunas">
+              <tr><th>Canal</th><th>Pessoas</th><th>Clicaram adicionar</th><th>Taxa</th><th>Voltaram</th></tr>
+              ${linhasCanais}</table></div>`
+          : `<p class="fraco">Ninguém contado ainda — os números aparecem a partir das próximas visitas.</p>`
+      }
+      <p class="fraco">Quem clica num link dentro do app do Discord quase sempre aparece como
+      <strong>direto</strong>, porque o app não diz de onde a pessoa veio. Para saber, use um
+      link com etiqueta em cada lugar onde divulgar — o nome depois de <code>ref=</code> vira o
+      canal na tabela:</p>
+      <ul class="links-ref">
+        <li><code>https://wardbot.com.br/?ref=tiktok</code></li>
+        <li><code>https://wardbot.com.br/?ref=topgg</code></li>
+        <li><code>https://wardbot.com.br/?ref=servidor-cblol</code></li>
+        <li><code>https://wardbot.com.br/build/Fizz?ref=reddit</code></li>
+      </ul>
+    </div>
+
     <div class="duas-colunas">
+      <div class="cartao">
+        <h2>Caminho até adicionar</h2>
+        <div class="funil">
+          ${etapa("Entraram no site", t.pessoas30)}
+          ${etapa("Viram alguma build", t.viramBuild30)}
+          ${etapa("Clicaram em adicionar", t.convidaram30)}
+          ${etapa("Entraram no painel", t.entraram30)}
+        </div>
+        <p class="fraco">Porcentagem sobre as pessoas que entraram no site nos últimos 30 dias.</p>
+      </div>
       ${tabela(
-        "Páginas mais vistas",
-        est.paginas.map((p) => [`<code>${escapar(p.caminho)}</code>`, n(p.visitas)]),
-        "Nenhuma visita ainda."
-      )}
-      ${tabela(
-        "De onde vêm",
-        est.origens.map((o) => [escapar(o.origem), n(o.visitas)]),
-        "Nenhuma visita ainda."
+        "Páginas mais vistas (pessoas)",
+        est.paginas.map((p) => [`<code>${escapar(p.caminho)}</code>`, n(p.pessoas)]),
+        "Nenhuma página vista ainda."
       )}
     </div>
     <div class="duas-colunas">
