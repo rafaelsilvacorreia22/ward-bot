@@ -932,7 +932,12 @@ async function rotear(request, env, ctx) {
           avisosAoDono,
           estatisticas,
           podeAvisarDono: !temChave,
-          resultadoAviso: { tipo: url.searchParams.get("aviso"), servidor: url.searchParams.get("servidor") },
+          resultadoAviso: {
+            tipo: url.searchParams.get("aviso"),
+            servidor: url.searchParams.get("servidor"),
+            nome: url.searchParams.get("nome"),
+            erro: url.searchParams.get("erro"),
+          },
         }),
         { indexar: false }
       );
@@ -955,14 +960,28 @@ async function rotear(request, env, ctx) {
       if (!sessao || !dono || sessao.usuario_id !== dono) {
         return new Response("Só quem cuida do bot pode fazer isso.", { status: 401 });
       }
+      const guildId = sairMatch[1];
+      // O nome vem do próprio formulário, só para a mensagem de resultado
+      // (o servidor some da lista depois da saída).
+      const nome = String((await request.formData().catch(() => null))?.get("nome") ?? "").slice(0, 100);
       let resultado = "saiu";
+      let erro = "";
       try {
-        await sairDoServidor(env, sairMatch[1]);
+        await sairDoServidor(env, guildId);
+        // Sem o bot lá, não há para onde postar: tira a configuração e o que
+        // estava na fila para aquele servidor.
+        await env.DB.batch([
+          env.DB.prepare("DELETE FROM guild_config WHERE guild_id = ?").bind(guildId),
+          env.DB.prepare("DELETE FROM envios_pendentes WHERE guild_id = ?").bind(guildId),
+        ]).catch((err) => console.log(`Saí de ${guildId}, mas não limpei os dados:`, err.message));
+        ctx.waitUntil(registrarEvento(env, "saida_pelo_painel").catch(() => {}));
       } catch (err) {
-        console.log(`Falha ao sair de ${sairMatch[1]}:`, err.message);
+        console.log(`Falha ao sair de ${guildId}:`, err.message);
         resultado = "erro_saida";
+        erro = (err.message.split("->")[1] ?? err.message).trim().slice(0, 140);
       }
-      return new Response(null, { status: 302, headers: { Location: `/admin/uso?aviso=${resultado}` } });
+      const busca = new URLSearchParams({ aviso: resultado, servidor: guildId, nome, ...(erro ? { erro } : {}) });
+      return new Response(null, { status: 302, headers: { Location: `/admin/uso?${busca}` } });
     }
 
     // "Avisar o dono" do painel de uso: manda para o dono do servidor uma

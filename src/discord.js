@@ -176,8 +176,18 @@ export async function enviarMensagem(env, canalId, corpo) {
 }
 
 // Tira o bot de um servidor (botão do painel de uso, só para o dono do bot).
+// Chamada direta, sem o Content-Type JSON do api(): é um DELETE sem corpo.
+// "Servidor desconhecido" (10004) quer dizer que o bot já não está lá —
+// conta como saída feita.
 export async function sairDoServidor(env, guildId) {
-  return api(env, `/users/@me/guilds/${guildId}`, { method: "DELETE" });
+  const res = await fetch(`${API}/users/@me/guilds/${guildId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bot ${(env.DISCORD_TOKEN ?? "").trim()}` },
+  });
+  if (res.ok) return;
+  const texto = await res.text();
+  if (res.status === 404 || /10004/.test(texto)) return;
+  throw new Error(`Discord DELETE /users/@me/guilds/${guildId} -> ${res.status} ${texto}`);
 }
 
 // Comando global (não por servidor): propaga pra todo lugar onde o bot está

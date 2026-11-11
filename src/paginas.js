@@ -2053,6 +2053,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
         </form>
         <form method="POST" action="/admin/sair/${g.id}"
               onsubmit="return confirm('Tirar o Ward do servidor ${nomeSeguro}? Para voltar, alguém de lá teria que adicionar de novo.')">
+          <input type="hidden" name="nome" value="${escapar(String(g.name))}">
           <button class="botao vazado discreto" type="submit">Tirar o Ward deste servidor</button>
         </form>`;
   };
@@ -2112,9 +2113,11 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
     <h1>Uso do Ward</h1>
     ${
       resultado.tipo === "saiu"
-        ? `<p class="banner">✓ O Ward saiu do servidor.</p>`
+        ? `<p class="banner">✓ O Ward saiu do servidor${resultado.nome ? ` <strong>${escapar(resultado.nome)}</strong>` : ""}
+           e a configuração dele foi apagada.</p>`
         : resultado.tipo === "erro_saida"
-          ? `<p class="banner atencao">Não consegui tirar o Ward desse servidor agora — tenta de novo.</p>`
+          ? `<p class="banner atencao">Não consegui tirar o Ward${resultado.nome ? ` de <strong>${escapar(resultado.nome)}</strong>` : " desse servidor"} agora — tenta de novo.
+             ${resultado.erro ? `<span class="fraco">Resposta do Discord: ${escapar(resultado.erro)}</span>` : ""}</p>`
           : ""
     }
     <div class="tiles">
