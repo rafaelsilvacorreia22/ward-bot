@@ -994,7 +994,7 @@ async function rotear(request, env, ctx) {
             ...corpo,
             content: `<@${servidor.owner_id}> ${corpo.content}`,
             allowed_mentions: { users: [servidor.owner_id] },
-          }, { assinar: false });
+          });
           resultado = "canal";
         }
         await salvarEstado(env, `aviso_dono_${guildId}`, new Date().toISOString()).catch(() => {});

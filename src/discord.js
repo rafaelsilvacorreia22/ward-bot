@@ -8,21 +8,10 @@ export const API = "https://discord.com/api/v10";
 // ainda responde, mas redireciona as páginas para cá (ver index.js).
 export const SITE = "https://wardbot.com.br";
 
-// Todo aviso público que o Ward posta leva a "assinatura" com o link do site:
-// quem vê o aviso num servidor descobre de onde ele vem e como colocar no
-// seu. Em embed vira o autor (clicável, no topo); em mensagem só de texto
-// (vídeo do YouTube) vira uma linha pequena no fim — com o link entre < >
-// para o Discord não abrir uma segunda prévia além da do vídeo.
-const AUTOR_WARD = { name: "Ward · adicione ao seu servidor", url: SITE, icon_url: `${SITE}/favicon.webp` };
-
-function assinarComWard(corpo) {
-  if (corpo.embeds?.length) {
-    const [primeiro, ...resto] = corpo.embeds;
-    return { ...corpo, embeds: [{ author: AUTOR_WARD, ...primeiro }, ...resto] };
-  }
-  if (corpo.content) return { ...corpo, content: `${corpo.content}\n-# Enviado pelo Ward · adicione ao seu servidor: <${SITE}>` };
-  return corpo;
-}
+// Os avisos saem limpos, sem "Enviado pelo Ward" nem link do site: a linha
+// ficava colada no link do vídeo/da notícia e atrapalhava. Quem quer saber
+// de onde vem o aviso clica no Ward e vê o link no perfil do bot (descrição
+// no Developer Portal).
 
 export const TIPO_INTERACAO = {
   PING: 1,
@@ -175,16 +164,14 @@ export async function enviarDM(env, usuarioId, corpo) {
     method: "POST",
     body: JSON.stringify({ recipient_id: usuarioId }),
   });
-  return enviarMensagem(env, canal.id, corpo, { assinar: false });
+  return enviarMensagem(env, canal.id, corpo);
 }
 
-// Único caminho por onde o bot posta em canal (avisos e "postar agora"), por
-// isso a assinatura com o link do site entra aqui.
-// `assinar: false` para mensagem ao dono de um servidor que já tem o bot.
-export async function enviarMensagem(env, canalId, corpo, { assinar = true } = {}) {
+// Único caminho por onde o bot posta em canal (avisos e "postar agora").
+export async function enviarMensagem(env, canalId, corpo) {
   return api(env, `/channels/${canalId}/messages`, {
     method: "POST",
-    body: JSON.stringify(semMencoes(assinar ? assinarComWard(corpo) : corpo)),
+    body: JSON.stringify(semMencoes(corpo)),
   });
 }
 
