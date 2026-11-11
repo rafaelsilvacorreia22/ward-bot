@@ -2027,7 +2027,9 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
   const RESULTADOS_AVISO = {
     dm: "✓ Aviso enviado por mensagem privada ao dono.",
     canal: "✓ O dono não aceita mensagem privada — o aviso foi postado no canal de boas-vindas do servidor, marcando ele.",
+    outro_canal: "✓ O dono não aceita mensagem privada e o Ward não pode postar nas boas-vindas — o aviso foi postado em outro canal do servidor, marcando ele.",
     dm_fechada: "O dono não aceita mensagem privada e o servidor não tem canal de boas-vindas. Não deu para avisar.",
+    sem_onde: "Não deu para avisar: o dono não aceita mensagem privada e o Ward não tem permissão de postar em nenhum canal desse servidor. Só alguém de lá pode liberar.",
     erro: "Não consegui mandar o aviso agora — tenta de novo em instantes.",
   };
   const resultado = estadoGlobal.resultadoAviso ?? {};
@@ -2037,7 +2039,9 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
     const ultimo = estadoGlobal.avisosAoDono?.get(g.id);
     const banner =
       resultado.servidor === g.id && RESULTADOS_AVISO[resultado.tipo]
-        ? `<p class="banner${["dm_fechada", "erro"].includes(resultado.tipo) ? " atencao" : ""}">${RESULTADOS_AVISO[resultado.tipo]}</p>`
+        ? `<p class="banner${["dm_fechada", "sem_onde", "erro"].includes(resultado.tipo) ? " atencao" : ""}">${RESULTADOS_AVISO[resultado.tipo]}${
+            resultado.erro ? `<br><span class="fraco">O que o Discord respondeu: ${escapar(resultado.erro)}</span>` : ""
+          }</p>`
         : "";
     // Aspas e barra saem do nome antes de ir para dentro do confirm() — senão
     // um servidor chamado "Bar do Zé's" quebraria o JavaScript do botão.

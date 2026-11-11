@@ -464,6 +464,20 @@ async function checarNoticias(env, apenasGuild) {
 
 // A mensagem do botão "Avisar o dono" do painel de uso: o que está ligado,
 // o que falta, e o link direto para o painel daquele servidor.
+// Erro do Discord em português, para o painel admin.
+function motivoDiscord(err) {
+  const m = String(err?.message ?? err);
+  if (/50007/.test(m)) return "não aceita mensagem privada";
+  if (/50001/.test(m)) return "Ward sem acesso ao canal";
+  if (/50013/.test(m)) return "Ward sem permissão de postar";
+  if (/10003/.test(m)) return "canal não existe mais";
+  if (/10004/.test(m)) return "Ward não está mais no servidor";
+  if (/10013/.test(m)) return "usuário não encontrado";
+  if (/-> 429/.test(m)) return "limite do Discord, tente em 1 minuto";
+  const codigo = /-> (\d{3})/.exec(m);
+  return codigo ? `erro ${codigo[1]} do Discord` : m.slice(0, 80);
+}
+
 function mensagemFaltaConfigurar(servidor, config, origin) {
   const linhas = AVISOS_DO_PAINEL.map(([nome, ligado, canal]) => {
     if (config[ligado] && config[canal]) return `✅ **${nome}** — ligado em <#${config[canal]}>`;
@@ -998,33 +1012,64 @@ async function rotear(request, env, ctx) {
         return new Response("Só quem cuida do bot pode fazer isso.", { status: 401 });
       }
 
-      let resultado;
+      // Tenta, nesta ordem: DM do dono → canal de boas-vindas → algum canal
+      // de texto onde o Ward consiga postar (preferindo os de conversa
+      // geral). Cada tentativa que falha fica anotada, para o painel dizer o
+      // motivo em vez de só "deu erro".
+      let resultado = "erro";
+      const falhas = [];
       try {
         const [servidor, config] = await Promise.all([pegarServidor(env, guildId), pegarConfig(env, guildId)]);
         const corpo = mensagemFaltaConfigurar(servidor, config, origin);
+        const noCanal = {
+          ...corpo,
+          content: `<@${servidor.owner_id}> ${corpo.content}`,
+          allowed_mentions: { users: [servidor.owner_id] },
+        };
         try {
           await enviarDM(env, servidor.owner_id, corpo);
           resultado = "dm";
         } catch (err) {
-          // 50007: o dono não aceita DM de membros do servidor. Aí vai no
-          // canal de boas-vindas, se o servidor tiver um.
-          if (!/50007/.test(err.message) || !servidor.system_channel_id) throw err;
-          await enviarMensagem(env, servidor.system_channel_id, {
-            ...corpo,
-            content: `<@${servidor.owner_id}> ${corpo.content}`,
-            allowed_mentions: { users: [servidor.owner_id] },
-          });
-          resultado = "canal";
+          falhas.push(`DM: ${motivoDiscord(err)}`);
         }
-        await salvarEstado(env, `aviso_dono_${guildId}`, new Date().toISOString()).catch(() => {});
-        ctx.waitUntil(registrarUsoComando(env, guildId, "painel:aviso-ao-dono").catch(() => {}));
+        if (resultado !== "dm") {
+          const canais = [];
+          if (servidor.system_channel_id) canais.push(servidor.system_channel_id);
+          try {
+            const texto = await listarCanaisTexto(env, guildId);
+            const prioridade = (c) => (/geral|general|chat|bate.?papo|conversa|lobby|principal/i.test(c.name) ? 0 : 1);
+            texto
+              .sort((a, b) => prioridade(a) - prioridade(b) || (a.position ?? 0) - (b.position ?? 0))
+              .forEach((c) => canais.includes(c.id) || canais.push(c.id));
+          } catch (err) {
+            falhas.push(`lista de canais: ${motivoDiscord(err)}`);
+          }
+          // No máximo 5 tentativas, para não gastar o limite de chamadas.
+          for (const canal of canais.slice(0, 5)) {
+            try {
+              await enviarMensagem(env, canal, noCanal);
+              resultado = canal === servidor.system_channel_id ? "canal" : "outro_canal";
+              break;
+            } catch (err) {
+              falhas.push(`canal ${canal}: ${motivoDiscord(err)}`);
+            }
+          }
+          if (resultado === "erro") resultado = "sem_onde";
+        }
+        if (resultado !== "sem_onde") {
+          await salvarEstado(env, `aviso_dono_${guildId}`, new Date().toISOString()).catch(() => {});
+          ctx.waitUntil(registrarUsoComando(env, guildId, "painel:aviso-ao-dono").catch(() => {}));
+        }
       } catch (err) {
-        console.log(`Falha ao avisar o dono de ${guildId}:`, err.message);
-        resultado = /50007/.test(err.message) ? "dm_fechada" : "erro";
+        falhas.push(motivoDiscord(err));
+        resultado = "erro";
       }
+      if (falhas.length) console.log(`Avisar o dono de ${guildId}: ${falhas.join(" | ")}`);
+      const busca = new URLSearchParams({ aviso: resultado, servidor: guildId });
+      if (["sem_onde", "erro"].includes(resultado)) busca.set("erro", falhas.join(" · ").slice(0, 300));
       return new Response(null, {
         status: 302,
-        headers: { Location: `/admin/uso?aviso=${resultado}&servidor=${guildId}#s${guildId}` },
+        headers: { Location: `/admin/uso?${busca}#s${guildId}` },
       });
     }
 
