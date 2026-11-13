@@ -83,14 +83,15 @@ import {
 import {
   buscarPromocoes,
   assinaturaPromocoes,
-  embedPromocoes,
+  mensagemPromocoes,
   varrerSkinsNovas,
   mensagensSkinsNovas,
   buscarVideos,
   mensagemVideo,
 } from "./avisos.js";
 import { traduzirParaPtBr } from "./traducao.js";
-import { buscarNoticias, embedDaNoticia } from "./noticias.js";
+import { buscarNoticias, mensagemDaNoticia } from "./noticias.js";
+import { buscarNotas, mensagemDoPatch } from "./patchnotes.js";
 
 // Os dois crons do wrangler.jsonc. O texto tem que bater exatamente com o de
 // lá — é por ele que o scheduled sabe qual dos dois disparou.
@@ -343,8 +344,24 @@ async function drenarFila(env, limite) {
 // publica o texto das notas em nenhuma API, mas o <meta description> da
 // própria página do patch já resume as novidades em uma frase. Usado tanto
 // pelo alerta automático quanto pelo botão "postar agora".
+//
+// Primeiro tenta o post completo, montado das notas em português (ver
+// patchnotes.js). Fica guardado por versão, para o /patch e o "postar
+// agora" não baixarem a página de novo. Se a página ainda não saiu (o Data
+// Dragon às vezes vira antes do artigo) ou não for reconhecida, cai no aviso
+// simples de antes.
 async function construirEmbedPatch(env) {
   const versao = await versaoAtual();
+  const chave = `post_patch_${versao}`;
+  try {
+    const guardado = await pegarEstado(env, chave);
+    if (guardado) return { versao, corpo: JSON.parse(guardado) };
+    const corpo = mensagemDoPatch(versao, await buscarNotas(versao));
+    await salvarEstado(env, chave, JSON.stringify(corpo)).catch(() => {});
+    return { versao, corpo };
+  } catch (err) {
+    console.log("Post completo do patch indisponível, usando o simples:", err.message);
+  }
   let url = LINK_NOTAS_PATCH;
   let descricao = "Confira todas as mudanças no link acima.";
   try {
@@ -452,7 +469,7 @@ async function checarNoticias(env, apenasGuild) {
       env,
       [config],
       (c) => c.news_channel_id,
-      novas.map((n) => ({ embeds: [embedDaNoticia(n)] })),
+      novas.map(mensagemDaNoticia),
       "noticias"
     );
     for (const noticia of novas) await marcarNoticiaPostada(env, config.guild_id, noticia.url);
@@ -546,7 +563,7 @@ async function checarPromocoes(env, apenasGuild) {
 
   const todos = await listarComAvisoLigado(env, "promocoes");
   const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
-  const corpo = { embeds: [embedPromocoes(lista)] };
+  const corpo = mensagemPromocoes(lista);
   await enfileirar(env, alvos, (c) => c.canal_do_aviso, [corpo], "promocoes");
   if (!apenasGuild) await salvarEstado(env, "promocoes_assinatura", assinatura);
   return { mudou: true, skins: lista.length, servidores: alvos.length };
@@ -1291,7 +1308,7 @@ async function rotear(request, env, ctx) {
             const { corpo } = await construirEmbedPatch(env);
             await enviarMensagem(env, canalId, corpo);
           } else if (tipo === "promocoes") {
-            await enviarMensagem(env, canalId, { embeds: [embedPromocoes(await buscarPromocoes(env))] });
+            await enviarMensagem(env, canalId, mensagemPromocoes(await buscarPromocoes(env)));
           } else {
             const [ultimo] = await buscarVideos(env);
             await enviarMensagem(env, canalId, mensagemVideo(ultimo));
@@ -1346,7 +1363,7 @@ async function rotear(request, env, ctx) {
           const noticia = noticias.find((n) => n.url === escolhida);
           if (!noticia) throw new Error("notícia fora da lista atual");
 
-          await enviarMensagem(env, canalId, { embeds: [embedDaNoticia(noticia)] });
+          await enviarMensagem(env, canalId, mensagemDaNoticia(noticia));
           // Marca pra este servidor, pra verificação automática não repetir.
           await marcarNoticiaPostada(env, guildId, noticia.url);
           ctx.waitUntil(

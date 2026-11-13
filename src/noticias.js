@@ -7,6 +7,7 @@
 // então é lido da página antes de cada busca, em vez de ficar fixo no código.
 
 import { pegarEstado, salvarEstado } from "./db.js";
+import { CORES, texto, galeria, botaoLink, linhaDeBotoes, mensagemEmBloco, resumir } from "./visual.js";
 
 const SITE = "https://www.leagueoflegends.com";
 const CABECALHO_NAVEGADOR = {
@@ -103,6 +104,21 @@ function extrairNoticias(dados) {
       imagem: item.media?.url ?? null,
     }))
     .sort((a, b) => new Date(a.data) - new Date(b.data));
+}
+
+// Mesmo visual do aviso de patch (ver visual.js): arte grande no topo,
+// título, resumo e botão para ler no site da Riot.
+export function mensagemDaNoticia(noticia) {
+  const quando = noticia.data ? Math.floor(new Date(noticia.data).getTime() / 1000) : null;
+  return mensagemEmBloco(CORES.noticia, [
+    noticia.imagem && galeria([{ url: noticia.imagem, descricao: noticia.titulo }]),
+    texto(
+      `-# ${noticia.categoria ?? "Notícias"}\n## ${noticia.titulo.slice(0, 250)}` +
+        (noticia.resumo ? `\n${resumir(noticia.resumo, 350)}` : "") +
+        (quando ? `\n-# <t:${quando}:D>` : "")
+    ),
+    linhaDeBotoes(botaoLink("Ler a notícia completa", noticia.url)),
+  ]);
 }
 
 export function embedDaNoticia(noticia) {

@@ -6,6 +6,7 @@
 import { chamarOpgg } from "./builds.js";
 import { versaoAtual, todosOsCampeoes } from "./riot.js";
 import { pegarEstado, salvarEstado } from "./db.js";
+import { CORES, texto, divisoria, galeria, mensagemEmBloco } from "./visual.js";
 
 const DDRAGON = "https://ddragon.leagueoflegends.com";
 
@@ -61,6 +62,25 @@ export const assinaturaPromocoes = (lista) =>
     .map((s) => s.skinId)
     .sort((a, b) => a - b)
     .join(",") + `@${lista[0]?.termina ?? ""}`;
+
+// Visual novo (ver visual.js): as artes das maiores promoções em grade no
+// topo e a lista com preço cheio riscado.
+export function mensagemPromocoes(lista) {
+  const fim = lista[0]?.termina ? Math.floor(new Date(lista[0].termina).getTime() / 1000) : null;
+  const linhas = lista.slice(0, 30).map((s) => `**${s.nome}** · ~~${s.precoCheio}~~ **${s.preco} RP** · -${s.desconto}%`);
+  return mensagemEmBloco(CORES.promocao, [
+    galeria(
+      lista
+        .filter((s) => s.arquivoCampeao)
+        .slice(0, 4)
+        .map((s) => ({ url: urlSplashSkin(s.arquivoCampeao, s.skinId), descricao: s.nome }))
+    ),
+    texto(`## Skins em promoção na loja\n${fim ? `Até <t:${fim}:D> (<t:${fim}:R>)` : "Promoção da semana"}`),
+    divisoria(),
+    texto(linhas.join("\n") || "Nenhuma skin em promoção agora."),
+    texto("-# Preços em RP · dados OP.GG"),
+  ]);
+}
 
 export function embedPromocoes(lista) {
   const linhas = lista.map(
@@ -173,17 +193,18 @@ export function mensagensSkinsNovas(novas) {
   const visiveis = lista.slice(0, 25);
   const resto = lista.length - visiveis.length;
   return [
-    {
-      content:
-        `**${principais.length === 1 ? "Skin nova no jogo!" : `${principais.length} skins novas no jogo!`}**\n` +
-        visiveis.join("\n") +
-        (resto > 0 ? `\n…e mais ${resto}.` : ""),
-      embeds: principais.slice(0, SKINS_COM_IMAGEM).map((s) => ({
-        title: s.nome,
-        color: 0xc8a24a,
-        image: { url: urlSplashSkin(s.arquivoCampeao, s.skinId) },
-      })),
-    },
+    mensagemEmBloco(CORES.skins, [
+      galeria(
+        principais
+          .slice(0, SKINS_COM_IMAGEM)
+          .map((s) => ({ url: urlSplashSkin(s.arquivoCampeao, s.skinId), descricao: s.nome }))
+      ),
+      texto(
+        `## ${principais.length === 1 ? "Skin nova no jogo!" : `${principais.length} skins novas no jogo!`}\n` +
+          visiveis.join("\n") +
+          (resto > 0 ? `\n…e mais ${resto}.` : "")
+      ),
+    ]),
   ];
 }
 

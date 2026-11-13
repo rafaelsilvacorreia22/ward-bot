@@ -13,7 +13,8 @@ import {
   versaoPublica,
 } from "./riot.js";
 import { traduzirParaPtBr } from "./traducao.js";
-import { registrarBuildPedida } from "./db.js";
+import { registrarBuildPedida, pegarEstado, salvarEstado } from "./db.js";
+import { buscarNotas, mensagemDoPatch } from "./patchnotes.js";
 import { MODOS, ROTAS, FRAGMENTOS, buscarBuild, buscarCounters, dadosDoJogo } from "./builds.js";
 
 const CAMPEAO = { type: 3, name: "campeao", description: "Campeão", required: true, autocomplete: true };
@@ -167,6 +168,20 @@ export const COMANDOS = {
     efemera: false,
     async executar(env, interacao) {
       const versao = await versaoAtual();
+      // Mesmo post do aviso automático (guardado por versão — ver
+      // construirEmbedPatch em index.js); se não der, o resumo simples.
+      try {
+        const chave = `post_patch_${versao}`;
+        let corpo = JSON.parse((await pegarEstado(env, chave)) ?? "null");
+        if (!corpo) {
+          corpo = mensagemDoPatch(versao, await buscarNotas(versao));
+          await salvarEstado(env, chave, JSON.stringify(corpo)).catch(() => {});
+        }
+        await editarResposta(interacao, corpo);
+        return;
+      } catch (err) {
+        console.log("Post completo do /patch indisponível:", err.message);
+      }
       try {
         const { url, resumo } = await resumoPatchEmIngles(versao);
         const resumoPt = await traduzirParaPtBr(env, resumo);
