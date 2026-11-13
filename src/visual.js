@@ -17,6 +17,7 @@ export const CORES = {
   noticia: 0xc8a24a,
   promocao: 0x2fbba0,
   skins: 0xe3418c,
+  video: 0xff0033,
 };
 
 export const texto = (content) => ({ type: 10, content: String(content).slice(0, 4000) });

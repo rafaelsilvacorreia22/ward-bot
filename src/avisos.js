@@ -6,7 +6,7 @@
 import { chamarOpgg } from "./builds.js";
 import { versaoAtual, todosOsCampeoes } from "./riot.js";
 import { pegarEstado, salvarEstado } from "./db.js";
-import { CORES, texto, divisoria, galeria, mensagemEmBloco } from "./visual.js";
+import { CORES, texto, divisoria, galeria, botaoLink, linhaDeBotoes, mensagemEmBloco } from "./visual.js";
 
 const DDRAGON = "https://ddragon.leagueoflegends.com";
 
@@ -231,6 +231,7 @@ export async function buscarVideos(env) {
     return (dados.items ?? []).map((i) => ({
       id: i.snippet.resourceId.videoId,
       titulo: i.snippet.title,
+      capa: (i.snippet.thumbnails?.maxres ?? i.snippet.thumbnails?.standard ?? i.snippet.thumbnails?.high)?.url,
     }));
   }
 
@@ -259,7 +260,15 @@ export async function buscarVideos(env) {
   return videos;
 }
 
-// Só o link: o próprio Discord mostra a miniatura e o player do vídeo.
+// Mesmo visual dos outros avisos: a capa grande do vídeo, o título e um
+// botão para assistir. Troca feita a pedido: neste formato o Discord não
+// mostra o player embutido (a prévia de link não existe aqui), então o vídeo
+// abre no YouTube pelo botão.
 export function mensagemVideo(video) {
-  return { content: `🎬 **Vídeo novo no canal oficial do LoL:** ${video.titulo}\nhttps://www.youtube.com/watch?v=${video.id}` };
+  const url = `https://www.youtube.com/watch?v=${video.id}`;
+  return mensagemEmBloco(CORES.video, [
+    galeria([{ url: video.capa ?? `https://i.ytimg.com/vi/${video.id}/maxresdefault.jpg` }]),
+    texto(`-# 🎬 Vídeo novo no canal oficial do LoL\n## ${video.titulo.slice(0, 250)}`),
+    linhaDeBotoes(botaoLink("▶ Assistir no YouTube", url)),
+  ]);
 }
