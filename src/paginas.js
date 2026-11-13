@@ -675,6 +675,23 @@ const ESTILO = `
   .funil-etapa i { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--verde) 22%, transparent); }
   .funil-etapa span, .funil-etapa strong { position: relative; }
   .funil-etapa strong { color: var(--latao-claro); white-space: nowrap; }
+  .sugestao summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; }
+  .sugestao summary::-webkit-details-marker { display: none; }
+  .sugestao summary::after { content: "▾"; margin-left: auto; color: var(--latao); transition: rotate .2s; }
+  .sugestao:not([open]) summary::after { rotate: -90deg; }
+  .sugestao summary h2 { margin: 0; }
+  .sugestao h3 { margin: 22px 0 8px; }
+  .sugestoes { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); margin: 14px 0 0; }
+  .sugestao-canal { background: var(--superficie-2); border: 1px solid var(--linha); padding: 14px 16px; clip-path: var(--degrau-p); }
+  .sugestao-canal p { margin: 8px 0 0; font-size: .92rem; }
+  .sugestao-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sugestao-topo div { display: flex; flex-direction: column; flex: 1; min-width: 120px; }
+  .sugestao-topo code { font-size: .82rem; color: var(--latao-claro); background: none; border: 0; padding: 0; }
+  .sugestao-icone { font-size: 1.6rem; line-height: 1; }
+  .passos { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+  .passos li { padding-left: 4px; }
+  .acoes-sugestao { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; align-items: center; }
+  .destaque-sugestao { outline: 2px solid var(--verde); outline-offset: 2px; transition: outline-color .6s; }
   .links-ref { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
   .links-ref code { font-size: .85rem; user-select: all; }
   .sobe { color: var(--verde); font-weight: 600; }
@@ -2188,6 +2205,124 @@ function previaNoticias(servidor, noticias) {
   `;
 }
 
+// Sugestão de organização no topo do painel do servidor: três canais, um
+// para cada tipo de aviso, com o passo a passo para criar e um botão que já
+// escolhe os canais certos no formulário quando eles existem (pelo nome).
+// Fica aberta enquanto faltar escolher canal em algum aviso; depois vira um
+// cartão fechado, para quem quiser rever.
+const CANAIS_SUGERIDOS = [
+  {
+    nome: "patch-e-noticias",
+    icone: "📰",
+    titulo: "Patch e notícias",
+    oQue: "Patch novo (com campeões, itens e o infográfico da Riot) e as notícias oficiais: CBLOL, eventos e comunicados.",
+    ritmo: "1 patch a cada 2 semanas + algumas notícias por semana.",
+    campos: ["patch_channel_id", "news_channel_id"],
+    reconhece: /patch|not[ií]cia|novidade|an[uú]ncio|news/i,
+  },
+  {
+    nome: "skins",
+    icone: "🎨",
+    titulo: "Skins",
+    oQue: "As skins em promoção da semana (com preço cheio e com desconto) e as skins novas que chegam a cada patch.",
+    ritmo: "1 promoção por semana + skins novas a cada patch.",
+    campos: ["sale_channel_id", "skins_channel_id"],
+    reconhece: /skin|loja|promo/i,
+  },
+  {
+    nome: "videos-lol",
+    icone: "🎬",
+    titulo: "Vídeos do YouTube",
+    oQue: "Trailers, cinemáticas e clipes novos do canal oficial do League of Legends.",
+    ritmo: "Alguns por semana, mais em época de evento e Mundial.",
+    campos: ["youtube_channel_id"],
+    reconhece: /v[ií]deo|youtube|clipe|trailer/i,
+  },
+];
+
+function sugestaoDeCanais(config, canais) {
+  const campos = CANAIS_SUGERIDOS.flatMap((s) => s.campos);
+  const faltaCanal = campos.some((c) => !config[c]);
+  // Canal que já existe no servidor e combina com cada sugestão (pelo nome).
+  const achados = CANAIS_SUGERIDOS.map((s) => canais.find((c) => s.reconhece.test(c.name)) ?? null);
+  const algumAchado = achados.some(Boolean);
+
+  const blocos = CANAIS_SUGERIDOS.map(
+    (s, i) => `
+      <div class="sugestao-canal">
+        <div class="sugestao-topo">
+          <span class="sugestao-icone" aria-hidden="true">${s.icone}</span>
+          <div>
+            <strong>${s.titulo}</strong>
+            <code>#${s.nome}</code>
+          </div>
+          ${
+            achados[i]
+              ? `<span class="tag ok">achei #${escapar(achados[i].name)}</span>`
+              : `<span class="tag">ainda não existe</span>`
+          }
+        </div>
+        <p>${s.oQue}</p>
+        <p class="fraco">Frequência: ${s.ritmo}</p>
+      </div>`
+  ).join("");
+
+  const mapa = Object.fromEntries(
+    CANAIS_SUGERIDOS.flatMap((s, i) => (achados[i] ? s.campos.map((campo) => [campo, achados[i].id]) : []))
+  );
+
+  return `
+    <details class="cartao sugestao"${faltaCanal ? " open" : ""}>
+      <summary><h2>Sugestão: organize os avisos em 3 canais</h2></summary>
+      <p>Cada aviso pode ir para qualquer canal, mas o jeito que funciona melhor é separar
+      por assunto. Assim quem só quer saber de skin não precisa rolar o patch inteiro, e
+      cada pessoa pode silenciar o canal que não interessa.</p>
+      <div class="sugestoes">${blocos}</div>
+
+      <h3>Como fazer</h3>
+      <ol class="passos">
+        <li><strong>Crie os 3 canais no Discord.</strong> No servidor, clique no <strong>+</strong> ao lado
+          de uma categoria (ou em <em>Criar canal</em>), escolha <em>Texto</em> e use os nomes acima
+          — pode pôr emoji, como <code>📰┇patch-e-noticias</code>.</li>
+        <li><strong>Deixe o Ward postar neles.</strong> Se o canal for fechado, em
+          <em>Editar canal → Permissões</em> adicione o <strong>Ward</strong> com
+          <em>Ver canal</em>, <em>Enviar mensagens</em> e <em>Inserir links</em>.</li>
+        <li><strong>Dica:</strong> deixe os canais só para leitura (tire <em>Enviar mensagens</em> do
+          @everyone). Assim os avisos não se perdem no meio da conversa.</li>
+        <li><strong>Volte aqui</strong>, atualize a página e escolha cada canal no aviso certo — ou
+          use o botão abaixo, que preenche sozinho. Depois é só clicar em <strong>Salvar</strong>.</li>
+      </ol>
+      <div class="acoes-sugestao">
+        ${
+          algumAchado
+            ? `<button class="botao" type="button" id="aplicar-sugestao">Preencher os canais com a sugestão</button>`
+            : ""
+        }
+        <a class="botao vazado discreto" href="">Já criei os canais — atualizar a lista</a>
+      </div>
+      ${
+        algumAchado
+          ? `<p class="fraco">O botão escolhe os canais que achei pelo nome e liga os avisos. Nada é salvo até você clicar em Salvar.</p>
+             <script>
+               document.getElementById("aplicar-sugestao").addEventListener("click", function () {
+                 var mapa = ${JSON.stringify(mapa)};
+                 var form = document.getElementById("form-config");
+                 Object.keys(mapa).forEach(function (campo) {
+                   var select = form.querySelector('select[name="' + campo + '"]');
+                   if (!select) return;
+                   select.value = mapa[campo];
+                   var ligar = form.querySelector('input[name="' + campo.replace("_channel_id", "_enabled") + '"]');
+                   if (ligar) ligar.checked = true;
+                   select.closest(".cartao").classList.add("destaque-sugestao");
+                 });
+                 form.scrollIntoView({ behavior: "smooth" });
+               });
+             </script>`
+          : ""
+      }
+    </details>`;
+}
+
 export function formularioConfig(servidor, config, canais, salvo, status, noticias = []) {
   const opcoesCanais = (selecionado) =>
     [`<option value="">— escolher canal —</option>`]
@@ -2209,7 +2344,8 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
     <a class="voltar" href="/dashboard">← voltar</a>
     <h1>${escapar(servidor.name)}</h1>
     ${bannerSalvo}${bannerStatus}
-    <form method="POST">
+    ${sugestaoDeCanais(config, canais)}
+    <form method="POST" id="form-config">
       <div class="cartao">
         <h2>Aviso de patch novo</h2>
         ${avisoDeFalha(config.patch_last_error, config.patch_last_error_at)}
@@ -2265,7 +2401,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
         <label class="campo"><span>Canal</span><select name="youtube_channel_id">${opcoesCanais(config.youtube_channel_id)}</select></label>
         <p class="fraco">Trailers, cinemáticas, clipes e lançamentos do
         <a href="https://www.youtube.com/@leagueoflegends/videos" target="_blank" rel="noopener">canal oficial</a>,
-        com o vídeo direto no Discord.</p>
+        com a capa do vídeo e um botão para assistir.</p>
         <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-youtube">Postar último vídeo agora</button>
       </div>
       <div class="cartao">
