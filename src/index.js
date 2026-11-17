@@ -92,7 +92,7 @@ import {
 } from "./avisos.js";
 import { traduzirParaPtBr } from "./traducao.js";
 import { buscarNoticias, mensagemDaNoticia } from "./noticias.js";
-import { buscarNotas, mensagemDoPatch } from "./patchnotes.js";
+import { buscarNotas, mensagemDoPatch, camadasDaArte, FUNDO_PERMITIDO } from "./patchnotes.js";
 
 // Os dois crons do wrangler.jsonc. O texto tem que bater exatamente com o de
 // lá — é por ele que o scheduled sabe qual dos dois disparou.
@@ -1353,6 +1353,30 @@ async function rotear(request, env, ctx) {
         ctx.waitUntil(registrarEvento(env, "login").catch(() => {}));
         ctx.waitUntil(codigoDaPessoa(request, env).then((h) => marcarPessoa(env, h, "entrou")).catch(() => {}));
       }
+      return resposta;
+    }
+
+    // Arte do patch montada na hora (ver camadasDaArte em patchnotes.js). A
+    // Cloudflare guarda o resultado em cache, então cada patch é montado uma
+    // vez só. Sem o serviço de imagens ligado na conta, sai a arte original.
+    const arteMatch = url.pathname.match(/^\/arte\/patch\/(\d{2}\.\d{1,2})\.jpg$/);
+    if (arteMatch && request.method === "GET") {
+      const fundo = url.searchParams.get("fundo") ?? "";
+      if (!FUNDO_PERMITIDO.test(fundo)) return new Response("Fundo não permitido.", { status: 400 });
+      const imagem = await fetch(fundo, {
+        cf: {
+          image: {
+            width: 1200,
+            height: 630,
+            fit: "cover",
+            format: "jpeg",
+            quality: 88,
+            draw: camadasDaArte(SITE, arteMatch[1]),
+          },
+        },
+      });
+      const resposta = new Response(imagem.body, imagem);
+      resposta.headers.set("Cache-Control", "public, max-age=2592000, immutable");
       return resposta;
     }
 

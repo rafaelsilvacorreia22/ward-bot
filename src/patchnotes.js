@@ -10,6 +10,7 @@
 // quem chama cai no aviso simples de antes.
 
 import { versaoPublica } from "./riot.js";
+import { SITE } from "./discord.js";
 import { CORES, texto, divisoria, galeria, botaoLink, linhaDeBotoes, mensagemEmBloco, resumir, citar } from "./visual.js";
 
 const CABECALHO = {
@@ -57,6 +58,22 @@ export function lerNotas(html) {
   const fim = html.indexOf("Artigos relacionados", inicio);
   const corpo = html.slice(inicio, fim > 0 ? fim : undefined);
 
+  // Introdução de verdade: o primeiro bloco de citação do artigo (o texto
+  // da equipe do patch), que é mais completo que a descrição curta da
+  // página. Às vezes ele começa com uma brincadeira (versinho) separada do
+  // texto por um espaço duro; nesse caso fica só a parte final.
+  // Antes do primeiro título pode haver mais de uma citação (ex.: "Errou as
+  // notas? As do TFT estão aqui"): vale a mais longa.
+  const antesDoPrimeiroTitulo = corpo.slice(0, corpo.search(/<h2/) > 0 ? corpo.search(/<h2/) : undefined);
+  const citacoes = [...antesDoPrimeiroTitulo.matchAll(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/g)].map((c) => c[1]);
+  const principal = citacoes.sort((a, b) => limpar(b).length - limpar(a).length)[0];
+  if (principal) {
+    // A citação junta trechos separados por espaço duro: versinho, o texto
+    // principal, link da wiki, "errou as notas?". Fica o trecho mais longo.
+    const partes = principal.split(/&nbsp;|<br\s*\/?>\s*<br\s*\/?>|<\/p>\s*<p[^>]*>/).map(limpar).filter((p) => p.length >= 80);
+    if (partes.length) notas.intro = partes.sort((a, b) => b.length - a.length)[0];
+  }
+
   const marcas =
     /<h2[^>]*>([\s\S]*?)<\/h2>|<h3[^>]*change-title[^>]*>([\s\S]*?)<\/h3>|<h4[^>]*(change-detail-title|skin-title)[^>]*>([\s\S]*?)<\/h4>|<li[^>]*>([\s\S]*?)<\/li>|<img[^>]*src="(https:[^"]+)"/g;
   let secao = "";
@@ -71,7 +88,7 @@ export function lerNotas(html) {
       if (secao && !SECOES_PROPRIAS.test(secao)) notas.outras.push(secao);
     } else if (m[2] !== undefined) {
       const nome = limpar(m[2]);
-      if (/^campe/i.test(secao)) notas.campeoes.push((atual = { nome, partes: [] }));
+      if (/^campe/i.test(secao)) notas.campeoes.push((atual = { nome, partes: [], linha: null, tecla: null }));
       else if (/^itens/i.test(secao)) notas.itens.push((atual = { nome, linha: null }));
       else atual = null;
     } else if (m[3] !== undefined) {
@@ -84,8 +101,10 @@ export function lerNotas(html) {
         // "Q – Pregos Ritualísticos" vira "Q"; "Atributos base" vira "atributos".
         const tecla = /^(Passiva|[QWER])\s*[–-]/.exec(titulo)?.[1] ?? (/atributo/i.test(titulo) ? "atributos" : titulo.split(/\s+[–-]\s+/)[0]);
         if (!atual.partes.includes(tecla)) atual.partes.push(tecla);
+        if (!atual.tecla) atual.tecla = tecla;
       }
     } else if (m[5] !== undefined) {
+      // A primeira mudança de cada campeão/item vira o exemplo no post.
       if (atual && "linha" in atual && !atual.linha) atual.linha = limpar(m[5]);
     } else if (m[6] !== undefined) {
       ultimaImagem = m[6];
@@ -110,10 +129,59 @@ const MAX_CAMPEOES = 24;
 const MAX_ITENS = 8;
 const MAX_SKINS_COM_ARTE = 4;
 
+// ---------- arte do patch ----------
+//
+// A arte do topo do post é montada pelo serviço de imagens da Cloudflare
+// (o Worker em si não tem tempo de processamento para isso no plano grátis):
+// por baixo, a arte oficial do patch; por cima, uma camada transparente pronta
+// (public/arte/patch-base.png: sombra, "NOTAS DA ATUALIZAÇÃO", "PATCH",
+// "LEAGUE OF LEGENDS" e a logo do Ward) e o número do patch, algarismo por
+// algarismo (public/arte/d0.png ... d9.png e dponto.png, todos gerados com a
+// mesma fonte do site). As posições abaixo saíram da medição dessas imagens.
+const NUMERO_X = 423;
+const NUMERO_Y = 215;
+const LARGURA_ALGARISMO = 76;
+const LARGURA_PONTO = 39;
+
+export function camadasDaArte(site, numero) {
+  const camadas = [{ url: `${site}/arte/patch-base.png`, top: 0, left: 0 }];
+  let x = NUMERO_X;
+  for (const c of numero) {
+    if (c === ".") {
+      camadas.push({ url: `${site}/arte/dponto.png`, top: NUMERO_Y, left: x });
+      x += LARGURA_PONTO;
+    } else if (/\d/.test(c)) {
+      camadas.push({ url: `${site}/arte/d${c}.png`, top: NUMERO_Y, left: x });
+      x += LARGURA_ALGARISMO;
+    }
+  }
+  return camadas;
+}
+
+// Endereço da arte montada (ver a rota /arte/patch em index.js). Só aceita
+// fundo vindo dos servidores de imagem da Riot.
+export const FUNDO_PERMITIDO = /^https:\/\/cmsassets\.rgpub\.io\//;
+export const urlArteDoPatch = (site, numero, fundo) =>
+  `${site}/arte/patch/${numero}.jpg?fundo=${encodeURIComponent(fundo)}`;
+
 export function mensagemDoPatch(versao, notas) {
   const numero = versaoPublica(versao).split(".").slice(0, 2).join(".");
+  // Fundo: a arte da primeira skin nova do patch (costuma ser a da coleção
+  // em destaque, com vários campeões) ou, sem skin, a imagem do artigo.
+  const fundo = [notas.skins[0]?.imagem, notas.banner].find((u) => u && FUNDO_PERMITIDO.test(u));
+  const arte = fundo ? urlArteDoPatch(SITE, numero, fundo) : notas.banner;
 
-  const campeoes = notas.campeoes.slice(0, MAX_CAMPEOES).map((c) => `**${c.nome}**${c.partes.length ? ` · ${c.partes.join(", ")}` : ""}`);
+  // Cada campeão com o que mudou e, embaixo em letra pequena, a primeira
+  // mudança como exemplo ("R · Dano: 90/170/250 ⇒ 100/190/280"). O Discord
+  // limita o texto do post inteiro a 4.000 caracteres: com muitos campeões,
+  // o exemplo encurta e, no limite, some.
+  const lista = notas.campeoes.slice(0, MAX_CAMPEOES);
+  const tamanhoExemplo = lista.length > 18 ? 0 : lista.length > 12 ? 80 : 110;
+  const campeoes = lista.map(
+    (c) =>
+      `**${c.nome}**${c.partes.length ? ` · ${c.partes.join(", ")}` : ""}` +
+      (c.linha && tamanhoExemplo ? `\n-# ${c.tecla && c.tecla !== "atributos" ? `${c.tecla} · ` : ""}${resumir(c.linha, tamanhoExemplo)}` : "")
+  );
   if (notas.campeoes.length > MAX_CAMPEOES) campeoes.push(`…e mais ${notas.campeoes.length - MAX_CAMPEOES}.`);
 
   const itens = notas.itens
@@ -123,8 +191,8 @@ export function mensagemDoPatch(versao, notas) {
   const skins = notas.skins.slice(0, 12);
 
   return mensagemEmBloco(CORES.patch, [
-    notas.banner && galeria([{ url: notas.banner, descricao: `Patch ${numero}` }]),
-    texto(`# Patch ${numero}\n${notas.intro ? citar(resumir(notas.intro, 450)) : "As notas do novo patch saíram!"}`),
+    arte && galeria([{ url: arte }]),
+    texto(`# Patch ${numero}\n${notas.intro ? citar(resumir(notas.intro, 650)) : "As notas do novo patch saíram!"}`),
     divisoria(),
     notas.destaques && texto("## Destaques da atualização"),
     notas.destaques && galeria([{ url: notas.destaques, descricao: `Destaques do patch ${numero}` }]),
