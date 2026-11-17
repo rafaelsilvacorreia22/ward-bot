@@ -175,6 +175,18 @@ export async function enviarMensagem(env, canalId, corpo) {
   });
 }
 
+// Apaga uma mensagem do próprio Ward (não precisa de permissão extra para
+// apagar o que o bot mesmo postou). Mensagem já apagada (10008) conta como
+// feito.
+export async function apagarMensagem(env, canalId, mensagemId) {
+  const res = await fetch(`${API}/channels/${canalId}/messages/${mensagemId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bot ${(env.DISCORD_TOKEN ?? "").trim()}` },
+  });
+  if (res.ok || res.status === 404) return;
+  throw new Error(`Discord DELETE mensagem -> ${res.status} ${await res.text()}`);
+}
+
 // Tira o bot de um servidor (botão do painel de uso, só para o dono do bot).
 // Chamada direta, sem o Content-Type JSON do api(): é um DELETE sem corpo.
 // "Servidor desconhecido" (10004) quer dizer que o bot já não está lá —

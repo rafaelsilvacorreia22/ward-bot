@@ -11,6 +11,7 @@ import {
   listarServidoresDoBot,
   listarCanaisTexto,
   enviarMensagem,
+  apagarMensagem,
   registrarComandosGlobais,
   pegarServidor,
   enviarDM,
@@ -265,22 +266,27 @@ async function servidoresDoUsuario(env, sessao) {
 
 // `funcao` ("patch", "noticias", "promocoes", "skins", "youtube") diz em
 // qual coluna gravar a falha de cada servidor (ver drenarFila).
-async function enfileirar(env, configs, canalDe, mensagens, funcao) {
+//
+// `substituir` (opcional) marca o post como atualizável: é o "assunto" dele
+// (data de fim da promoção, versão do patch). Ao enviar, se o último post
+// daquela função no servidor for do mesmo assunto, o anterior é apagado —
+// ver migracoes/0014.
+async function enfileirar(env, configs, canalDe, mensagens, funcao, { substituir = null } = {}) {
   const linhas = [];
   for (const config of configs) {
     const canal = canalDe(config);
     if (!canal) continue;
-    for (const m of mensagens) linhas.push([config.guild_id, canal, JSON.stringify(m), funcao]);
+    for (const m of mensagens) linhas.push([config.guild_id, canal, JSON.stringify(m), funcao, substituir]);
   }
   // Várias linhas por INSERT: o plano free também limita consultas por
-  // execução (o D1 aceita até 100 parâmetros por consulta: 4 colunas x 25).
+  // execução (o D1 aceita até 100 parâmetros por consulta: 5 colunas x 20).
   const consultas = [];
-  for (let i = 0; i < linhas.length; i += 25) {
-    const grupo = linhas.slice(i, i + 25);
+  for (let i = 0; i < linhas.length; i += 20) {
+    const grupo = linhas.slice(i, i + 20);
     consultas.push(
       env.DB.prepare(
-        `INSERT INTO envios_pendentes (guild_id, canal_id, corpo, funcao, criado)
-         VALUES ${grupo.map(() => "(?, ?, ?, ?, datetime('now'))").join(",")}`
+        `INSERT INTO envios_pendentes (guild_id, canal_id, corpo, funcao, grupo, criado)
+         VALUES ${grupo.map(() => "(?, ?, ?, ?, ?, datetime('now'))").join(",")}`
       ).bind(...grupo.flat())
     );
   }
@@ -295,18 +301,46 @@ const ERRO_DEFINITIVO = /-> (400|403|404)\b|50001|50013/;
 // Manda até `limite` mensagens da fila, na ordem em que entraram.
 async function drenarFila(env, limite) {
   const { results } = await env.DB.prepare(
-    "SELECT id, guild_id, canal_id, corpo, funcao, tentativas FROM envios_pendentes ORDER BY id LIMIT ?"
+    "SELECT id, guild_id, canal_id, corpo, funcao, grupo, tentativas FROM envios_pendentes ORDER BY id LIMIT ?"
   )
     .bind(limite)
     .all();
   if (!results.length) return { enviados: 0 };
+
+  // Último post atualizável de cada servidor/função que aparece no lote —
+  // uma consulta só para o lote inteiro.
+  const anteriores = new Map();
+  const comGrupo = results.filter((e) => e.grupo);
+  if (comGrupo.length) {
+    const { results: ultimas } = await env.DB.prepare(
+      `SELECT guild_id, funcao, grupo, canal_id, mensagem_id FROM ultimas_mensagens
+       WHERE guild_id IN (${comGrupo.map(() => "?").join(",")})`
+    )
+      .bind(...comGrupo.map((e) => e.guild_id))
+      .all();
+    for (const u of ultimas) anteriores.set(`${u.guild_id}|${u.funcao}`, u);
+  }
+  const novasUltimas = [];
 
   const remover = [];
   const deuCerto = new Map(); // funcao -> Set(guild)
   let enviados = 0;
   for (const envio of results) {
     try {
-      await enviarMensagem(env, envio.canal_id, JSON.parse(envio.corpo));
+      const enviada = await enviarMensagem(env, envio.canal_id, JSON.parse(envio.corpo));
+      if (envio.grupo && enviada?.id) {
+        const chave = `${envio.guild_id}|${envio.funcao}`;
+        const anterior = anteriores.get(chave);
+        // Mesmo assunto = atualização: some o post antigo, fica só o novo.
+        if (anterior && anterior.grupo === envio.grupo && anterior.mensagem_id !== enviada.id) {
+          await apagarMensagem(env, anterior.canal_id, anterior.mensagem_id).catch((err) =>
+            console.log(`Não apaguei o post antigo de ${envio.funcao} em ${envio.guild_id}:`, err.message)
+          );
+        }
+        const nova = { guild_id: envio.guild_id, funcao: envio.funcao, grupo: envio.grupo, canal_id: envio.canal_id, mensagem_id: enviada.id };
+        anteriores.set(chave, nova);
+        novasUltimas.push(nova);
+      }
       remover.push(envio.id);
       enviados++;
       if (!deuCerto.has(envio.funcao)) deuCerto.set(envio.funcao, new Set());
@@ -330,6 +364,14 @@ async function drenarFila(env, limite) {
   if (remover.length) {
     consultas.push(
       env.DB.prepare(`DELETE FROM envios_pendentes WHERE id IN (${remover.map(() => "?").join(",")})`).bind(...remover)
+    );
+  }
+  for (const u of novasUltimas) {
+    consultas.push(
+      env.DB.prepare(
+        `INSERT INTO ultimas_mensagens (guild_id, funcao, grupo, canal_id, mensagem_id) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(guild_id, funcao) DO UPDATE SET grupo = excluded.grupo, canal_id = excluded.canal_id, mensagem_id = excluded.mensagem_id`
+      ).bind(u.guild_id, u.funcao, u.grupo, u.canal_id, u.mensagem_id)
     );
   }
   // Envio que deu certo prova que o canal voltou a funcionar: limpa o erro.
@@ -564,7 +606,11 @@ async function checarPromocoes(env, apenasGuild) {
   const todos = await listarComAvisoLigado(env, "promocoes");
   const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
   const corpo = mensagemPromocoes(lista);
-  await enfileirar(env, alvos, (c) => c.canal_do_aviso, [corpo], "promocoes");
+  // Assunto = a semana da promoção (data de fim): a lista do OP.GG cresce ao
+  // longo da semana, e cada versão nova substitui a anterior no canal.
+  await enfileirar(env, alvos, (c) => c.canal_do_aviso, [corpo], "promocoes", {
+    substituir: `promo:${lista[0]?.termina ?? ""}`,
+  });
   if (!apenasGuild) await salvarEstado(env, "promocoes_assinatura", assinatura);
   return { mudou: true, skins: lista.length, servidores: alvos.length };
 }
