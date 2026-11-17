@@ -294,6 +294,68 @@ async function enfileirar(env, configs, canalDe, mensagens, funcao, { substituir
   return linhas.length;
 }
 
+// Limpeza pontual dos posts de promoção repetidos que saíram antes de existir
+// a substituição (ver migracoes/0014): em cada canal de promoções, apaga os
+// posts do Ward da promoção atual e deixa só o mais recente. Só roda quando
+// pedida (bot_state "limpeza_promo_pedida" = "todos" ou o id de um servidor,
+// para testar antes) e vai de 3 em 3 servidores por rodada do cron de 2
+// minutos, para caber no limite de chamadas.
+const SERVIDORES_POR_LIMPEZA = 3;
+
+function ehPostDePromocao(m) {
+  const embed = m.embeds?.[0]?.title ?? "";
+  return /Skins em promoção/i.test(embed) || JSON.stringify(m.components ?? []).includes("Skins em promoção na loja");
+}
+
+async function limparPromocoesRepetidas(env) {
+  const pedida = await pegarEstado(env, "limpeza_promo_pedida");
+  if (!pedida) return { nada: true };
+  const assinatura = (await pegarEstado(env, "promocoes_assinatura")) ?? "";
+  const termina = assinatura.split("@")[1];
+  if (!termina) return { erro: "sem promoção atual" };
+  const inicio = new Date(new Date(termina).getTime() - 7 * 86400000);
+  const grupo = `promo:${termina}`;
+
+  const feitos = new Set(JSON.parse((await pegarEstado(env, "limpeza_promo_feitos")) ?? "[]"));
+  const alvos = (await listarComAvisoLigado(env, "promocoes"))
+    .filter((c) => c.canal_do_aviso && !feitos.has(c.guild_id))
+    .filter((c) => pedida === "todos" || c.guild_id === pedida)
+    .slice(0, SERVIDORES_POR_LIMPEZA);
+
+  const relatorio = [];
+  for (const c of alvos) {
+    let apagados = 0;
+    try {
+      const mensagens = await api(env, `/channels/${c.canal_do_aviso}/messages?limit=50`);
+      const promos = mensagens
+        .filter((m) => m.author?.id === env.DISCORD_CLIENT_ID && ehPostDePromocao(m) && new Date(m.timestamp) >= inicio)
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      const [maisRecente, ...repetidos] = promos;
+      for (const m of repetidos.slice(0, 10)) {
+        await apagarMensagem(env, c.canal_do_aviso, m.id);
+        apagados++;
+      }
+      if (maisRecente) {
+        await env.DB.prepare(
+          `INSERT INTO ultimas_mensagens (guild_id, funcao, grupo, canal_id, mensagem_id) VALUES (?, 'promocoes', ?, ?, ?)
+           ON CONFLICT(guild_id, funcao) DO UPDATE SET grupo = excluded.grupo, canal_id = excluded.canal_id, mensagem_id = excluded.mensagem_id`
+        )
+          .bind(c.guild_id, grupo, c.canal_do_aviso, maisRecente.id)
+          .run();
+      }
+      relatorio.push({ servidor: c.guild_id, achados: promos.length, apagados });
+    } catch (err) {
+      relatorio.push({ servidor: c.guild_id, apagados, erro: err.message.slice(0, 120) });
+    }
+    feitos.add(c.guild_id);
+  }
+  await salvarEstado(env, "limpeza_promo_feitos", JSON.stringify([...feitos]));
+  const anterior = JSON.parse((await pegarEstado(env, "limpeza_promo_relatorio")) ?? "[]");
+  await salvarEstado(env, "limpeza_promo_relatorio", JSON.stringify([...anterior, ...relatorio]));
+  if (!alvos.length) await salvarEstado(env, "limpeza_promo_pedida", "");
+  return { relatorio };
+}
+
 // Erro que tentar de novo não resolve: o Discord recusou o conteúdo (400),
 // o bot não tem permissão (403/50013/50001) ou o canal sumiu (404).
 const ERRO_DEFINITIVO = /-> (400|403|404)\b|50001|50013/;
@@ -1544,6 +1606,8 @@ export default {
           // Fila de avisos primeiro: é o que tem gente esperando.
           const fila = await drenarFila(env, 30).catch((err) => ({ erro: err.message }));
           if (fila.enviados || fila.erro) console.log("fila:", JSON.stringify(fila));
+          const limpeza = await limparPromocoesRepetidas(env).catch((err) => ({ erro: err.message }));
+          if (!limpeza.nada) console.log("limpeza de promoções:", JSON.stringify(limpeza));
           const emojis = await sincronizarEmojis(env).catch((err) => ({ erro: err.message }));
           if (!emojis.completo) console.log("emojis:", JSON.stringify(emojis));
           // Só trabalha quando sai patch novo (ver varrerSkinsNovas).
