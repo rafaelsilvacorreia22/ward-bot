@@ -356,6 +356,50 @@ async function limparPromocoesRepetidas(env) {
   return { relatorio };
 }
 
+// Repost pontual do aviso de patch no visual novo: em cada servidor com o
+// aviso de patch ligado, apaga os posts do Ward sobre ESTE patch (o antigo,
+// de embed, e testes) e posta o novo. Só roda quando pedido (bot_state
+// "repost_patch_pedido" = "todos" ou o id de um servidor) e vai de 3 em 3
+// servidores por rodada do cron de 2 minutos.
+async function repostarPatch(env) {
+  const pedido = await pegarEstado(env, "repost_patch_pedido");
+  if (!pedido) return { nada: true };
+  const { versao, corpo } = await construirEmbedPatch(env);
+  const numero = versaoPublica(versao).split(".").slice(0, 2).join(".");
+  const ehDestePatch = (m) =>
+    m.author?.id === env.DISCORD_CLIENT_ID &&
+    (new RegExp(`patch ${numero.replace(".", "\\.")}`, "i").test(m.embeds?.[0]?.title ?? "") ||
+      JSON.stringify(m.components ?? []).includes(`Patch ${numero}`));
+
+  const feitos = new Set(JSON.parse((await pegarEstado(env, "repost_patch_feitos")) ?? "[]"));
+  const alvos = (await listarPatchAtivo(env))
+    .filter((c) => c.patch_channel_id && !feitos.has(c.guild_id))
+    .filter((c) => pedido === "todos" || c.guild_id === pedido)
+    .slice(0, SERVIDORES_POR_LIMPEZA);
+
+  const relatorio = [];
+  for (const c of alvos) {
+    let apagados = 0;
+    try {
+      const mensagens = await api(env, `/channels/${c.patch_channel_id}/messages?limit=50`);
+      for (const m of mensagens.filter(ehDestePatch).slice(0, 5)) {
+        await apagarMensagem(env, c.patch_channel_id, m.id);
+        apagados++;
+      }
+      await enviarMensagem(env, c.patch_channel_id, corpo);
+      relatorio.push({ servidor: c.guild_id, apagados, postado: true });
+    } catch (err) {
+      relatorio.push({ servidor: c.guild_id, apagados, erro: err.message.slice(0, 120) });
+    }
+    feitos.add(c.guild_id);
+  }
+  await salvarEstado(env, "repost_patch_feitos", JSON.stringify([...feitos]));
+  const anterior = JSON.parse((await pegarEstado(env, "repost_patch_relatorio")) ?? "[]");
+  await salvarEstado(env, "repost_patch_relatorio", JSON.stringify([...anterior, ...relatorio]));
+  if (!alvos.length) await salvarEstado(env, "repost_patch_pedido", "");
+  return { relatorio };
+}
+
 // Erro que tentar de novo não resolve: o Discord recusou o conteúdo (400),
 // o bot não tem permissão (403/50013/50001) ou o canal sumiu (404).
 const ERRO_DEFINITIVO = /-> (400|403|404)\b|50001|50013/;
@@ -1632,6 +1676,8 @@ export default {
           if (fila.enviados || fila.erro) console.log("fila:", JSON.stringify(fila));
           const limpeza = await limparPromocoesRepetidas(env).catch((err) => ({ erro: err.message }));
           if (!limpeza.nada) console.log("limpeza de promoções:", JSON.stringify(limpeza));
+          const repost = await repostarPatch(env).catch((err) => ({ erro: err.message }));
+          if (!repost.nada) console.log("repost do patch:", JSON.stringify(repost));
           const emojis = await sincronizarEmojis(env).catch((err) => ({ erro: err.message }));
           if (!emojis.completo) console.log("emojis:", JSON.stringify(emojis));
           // Só trabalha quando sai patch novo (ver varrerSkinsNovas).
