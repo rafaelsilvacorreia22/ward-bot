@@ -198,14 +198,62 @@ export async function listarTodasConfigs(env) {
 
 // Só incrementa a contagem — em nenhum momento guarda quem executou.
 export async function registrarUsoComando(env, guildId, comando) {
-  await env.DB.prepare(
-    `INSERT INTO command_usage (guild_id, comando, total, ultimo_uso)
-     VALUES (?, ?, 1, datetime('now'))
-     ON CONFLICT(guild_id, comando) DO UPDATE SET
-       total = total + 1,
-       ultimo_uso = datetime('now')`
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO command_usage (guild_id, comando, total, ultimo_uso)
+       VALUES (?, ?, 1, datetime('now'))
+       ON CONFLICT(guild_id, comando) DO UPDATE SET
+         total = total + 1,
+         ultimo_uso = datetime('now')`
+    ).bind(guildId, comando),
+    contarNoDia(env, guildId, comando),
+  ]);
+}
+
+// Uma linha por servidor/dia/comando (ver migracoes/0015).
+function contarNoDia(env, guildId, comando) {
+  return env.DB.prepare(
+    `INSERT INTO comandos_por_dia (guild_id, dia, comando, total) VALUES (?, ?, ?, 1)
+     ON CONFLICT(guild_id, dia, comando) DO UPDATE SET total = total + 1`
+  ).bind(guildId, diaBrasil(), comando);
+}
+
+// Servidor bateu no limite de comandos por minuto. Devolve quantas vezes
+// isso já aconteceu hoje nele (1 = primeira vez no dia, hora de avisar).
+export async function registrarLimiteAtingido(env, guildId) {
+  await contarNoDia(env, guildId, "__limite").run();
+  const linha = await env.DB.prepare(
+    "SELECT total FROM comandos_por_dia WHERE guild_id = ? AND dia = ? AND comando = '__limite'"
   )
-    .bind(guildId, comando)
+    .bind(guildId, diaBrasil())
+    .first();
+  return linha?.total ?? 1;
+}
+
+// Uso recente de cada servidor para o painel: comandos de hoje, de ontem
+// para cá (≈ 24h) e dos últimos 7 dias, mais as vezes em que bateu no limite.
+export async function usoRecentePorServidor(env) {
+  const hoje = diaBrasil();
+  const ontem = diaBrasil(new Date(Date.now() - 86400000));
+  const semana = diaBrasil(new Date(Date.now() - 6 * 86400000));
+  const { results } = await env.DB.prepare(
+    `SELECT guild_id,
+       SUM(CASE WHEN comando <> '__limite' AND comando NOT LIKE 'painel:%' AND dia = ?1 THEN total ELSE 0 END) AS hoje,
+       SUM(CASE WHEN comando <> '__limite' AND comando NOT LIKE 'painel:%' AND dia >= ?2 THEN total ELSE 0 END) AS dia24,
+       SUM(CASE WHEN comando <> '__limite' AND comando NOT LIKE 'painel:%' THEN total ELSE 0 END) AS semana,
+       SUM(CASE WHEN comando = '__limite' AND dia >= ?2 THEN total ELSE 0 END) AS limite24,
+       SUM(CASE WHEN comando = '__limite' THEN total ELSE 0 END) AS limiteSemana
+     FROM comandos_por_dia WHERE dia >= ?3 GROUP BY guild_id`
+  )
+    .bind(hoje, ontem, semana)
+    .all();
+  return new Map(results.map((r) => [r.guild_id, r]));
+}
+
+// O detalhe por dia só serve para a semana do painel; depois de 60 dias sai.
+export async function limparComandosPorDia(env) {
+  await env.DB.prepare("DELETE FROM comandos_por_dia WHERE dia < ?")
+    .bind(diaBrasil(new Date(Date.now() - 60 * 86400000)))
     .run();
 }
 

@@ -59,6 +59,9 @@ import {
   registrarVista,
   marcarPessoa,
   registrarEvento,
+  registrarLimiteAtingido,
+  usoRecentePorServidor,
+  limparComandosPorDia,
   salvarMetricaDiaria,
   limparVisitantesAntigos,
   estatisticasDoSite,
@@ -146,6 +149,7 @@ async function tratarInteracao(interacao, env, ctx, origin) {
       const { success } = await env.LIMITE_COMANDOS.limit({ key: interacao.guild_id });
       if (!success) {
         ctx.waitUntil(registrarEvento(env, "limite_atingido").catch(() => {}));
+        ctx.waitUntil(avisarLimiteAtingido(env, interacao.guild_id).catch((err) => console.log("Aviso de limite:", err.message)));
         return json({
           type: RESPOSTA.MENSAGEM,
           data: {
@@ -175,6 +179,27 @@ async function tratarInteracao(interacao, env, ctx, origin) {
   }
 
   return json({ type: RESPOSTA.PONG });
+}
+
+// Servidor bateu no limite de comandos por minuto: possível spam. Conta no
+// painel e, na primeira vez do dia em cada servidor, manda DM para o dono do
+// bot com o nome do servidor e o link do painel — nas seguintes do mesmo dia,
+// só conta, para a DM não virar spam também.
+async function avisarLimiteAtingido(env, guildId) {
+  const vezes = await registrarLimiteAtingido(env, guildId);
+  if (vezes !== 1) return;
+  const dono = await idDoDono(env);
+  if (!dono) return;
+  const nome = await pegarServidor(env, guildId)
+    .then((s) => s.name)
+    .catch(() => null);
+  await enviarDM(env, dono, {
+    content:
+      `⚠️ **${nome ? nome.replace(/[*_`~|]/g, "") : "Um servidor"}** bateu no limite de comandos agora ` +
+      `(mais de 20 /build, /build-aram ou /counter em 1 minuto). Pode ser spam.\n` +
+      `O Ward já está segurando os pedidos extras. Detalhes: ${SITE}/admin/uso#s${guildId}\n` +
+      `-# id ${guildId} · só aviso a primeira vez de cada dia.`,
+  });
 }
 
 // Quem criou a aplicação no Discord é o dono do bot. Descobre uma vez e
@@ -1078,7 +1103,7 @@ async function rotear(request, env, ctx) {
           return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
         }
       }
-      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos, avisosAoDono, estatisticas] =
+      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos, avisosAoDono, estatisticas, usoRecente] =
         await Promise.all([
           listarServidoresDoBot(env),
           listarTodasConfigs(env),
@@ -1092,6 +1117,7 @@ async function rotear(request, env, ctx) {
             console.log("Não carreguei as estatísticas:", err.message);
             return null;
           }),
+          usoRecentePorServidor(env).catch(() => new Map()),
         ]);
       // Aproveita a lista que acabou de chegar para atualizar o retrato de
       // hoje do gráfico de crescimento.
@@ -1114,6 +1140,7 @@ async function rotear(request, env, ctx) {
           emojisCompletos,
           avisosAoDono,
           estatisticas,
+          usoRecente,
           podeAvisarDono: !temChave,
           resultadoAviso: {
             tipo: url.searchParams.get("aviso"),
@@ -1723,6 +1750,7 @@ export default {
             : { pulado: true };
         if (new Date(evento.scheduledTime ?? Date.now()).getUTCHours() === 6 && minuto < 15) {
           await limparVisitantesAntigos(env).catch(() => {});
+          await limparComandosPorDia(env).catch(() => {});
         }
         const comandos = await registrarComandosSeMudaram(env).catch((err) => ({ erro: err.message }));
         const vitrine = await atualizarVitrineBuild(env).catch((err) => ({ erro: err.message }));

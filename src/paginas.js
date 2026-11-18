@@ -1989,6 +1989,54 @@ function painelEstatisticas(est) {
     </div>`;
 }
 
+// Uso recente de comandos (/build, /build-aram, /counter, /patch...) — o que
+// diz se um servidor está fazendo spam. Ações do painel não entram.
+function linhaUsoRecente(u) {
+  if (!u) return `<p class="fraco">Comandos: nenhum nos últimos 7 dias.</p>`;
+  const limite =
+    u.limite24 > 0
+      ? `<span class="tag atencao">bateu no limite ${u.limite24}× nas últimas 24h</span>`
+      : u.limiteSemana > 0
+        ? `<span class="tag">bateu no limite ${u.limiteSemana}× na semana</span>`
+        : "";
+  return `<p>Comandos: <strong>${u.hoje}</strong> hoje · <strong>${u.dia24}</strong> em 24h · <strong>${u.semana}</strong> em 7 dias ${limite}</p>`;
+}
+
+// Topo do painel: quem mais usou comandos nas últimas 24h e quem bateu no
+// limite de 20 por minuto (possível spam). Clicar leva ao cartão do servidor.
+function painelAtividade(servidores, usoRecente) {
+  if (!usoRecente) return "";
+  const nomes = new Map(servidores.map((g) => [g.id, g.name]));
+  const linhas = [...usoRecente.values()]
+    .filter((u) => u.dia24 > 0 || u.limite24 > 0)
+    .sort((a, b) => b.limite24 - a.limite24 || b.dia24 - a.dia24)
+    .slice(0, 10);
+  const alerta = linhas.filter((u) => u.limite24 > 0);
+  return `
+    <div class="cartao">
+      <h2>Atividade nas últimas 24h</h2>
+      ${
+        alerta.length
+          ? `<p class="banner atencao">⚠️ ${alerta.length === 1 ? "1 servidor bateu" : `${alerta.length} servidores bateram`} no limite de 20 comandos por minuto — pode ser spam. O Ward segura os pedidos extras sozinho; você recebe uma DM na primeira vez de cada dia.</p>`
+          : `<p class="fraco">Nenhum servidor bateu no limite de 20 comandos por minuto. Sem sinal de spam.</p>`
+      }
+      ${
+        linhas.length
+          ? `<table class="tabela-estat colunas">
+              <tr><th>Servidor</th><th>Comandos 24h</th><th>7 dias</th><th>Limite 24h</th></tr>
+              ${linhas
+                .map(
+                  (u) => `<tr><td><a href="#s${escapar(u.guild_id)}">${escapar(nomes.get(u.guild_id) ?? u.guild_id)}</a></td>
+                    <td>${u.dia24}</td><td>${u.semana}</td><td>${u.limite24 ? `<strong class="desce">${u.limite24}×</strong>` : "—"}</td></tr>`
+                )
+                .join("")}
+            </table>`
+          : `<p class="fraco">Ninguém usou comandos nas últimas 24h.</p>`
+      }
+      <p class="fraco">A contagem por dia começou em 18/11/2026; antes disso só existe o total de cada servidor.</p>
+    </div>`;
+}
+
 // Painel privado de acompanhamento (rota /admin/uso). Mostra só dados de
 // servidor e contagem de comandos — nada que identifique pessoas.
 export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
@@ -2113,6 +2161,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
         <p>Promoções: ${aviso(c?.sale_enabled, c?.sale_channel_id, null)}</p>
         <p>Skins novas: ${aviso(c?.skins_enabled, c?.skins_channel_id, null)}</p>
         <p>YouTube: ${aviso(c?.youtube_enabled, c?.youtube_channel_id, null)}</p>
+        ${linhaUsoRecente(estadoGlobal.usoRecente?.get(g.id))}
         <p>${listaComandos}</p>
         ${blocoAvisarDono(g, c)}
       </div>`;
@@ -2148,6 +2197,7 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
       ${tile(totalComandos, "comandos usados")}
       ${tile(comFalha, "com falha no envio")}
     </div>
+    ${painelAtividade(servidores, estadoGlobal.usoRecente)}
     ${painelEstatisticas(estadoGlobal.estatisticas)}
     ${painelColeta}
     ${cartoes}
