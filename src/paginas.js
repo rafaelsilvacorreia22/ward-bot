@@ -692,6 +692,26 @@ const ESTILO = `
   .passos li { padding-left: 4px; }
   .acoes-sugestao { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; align-items: center; }
   .destaque-sugestao { outline: 2px solid var(--verde); outline-offset: 2px; transition: outline-color .6s; }
+  .opcional { font-style: normal; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--texto-fraco); border: 1px solid var(--linha); padding: 1px 6px; margin-left: 6px; }
+  .dica-cargo { margin: 14px 0 4px; }
+  .link-vivo { display: inline-block; margin-top: 10px; font-size: .9rem; color: var(--latao); }
+  .link-vivo:hover { color: var(--latao-claro); }
+  .promos { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); margin: 22px 0; }
+  .promo { background: var(--superficie); border: 1px solid var(--linha); clip-path: var(--degrau); display: flex; flex-direction: column; }
+  .promo-arte { position: relative; display: block; aspect-ratio: 308 / 420; overflow: hidden; background: var(--superficie-2); }
+  .promo-arte img { width: 100%; height: 100%; object-fit: cover; object-position: top; transition: transform .35s; display: block; }
+  .promo:hover .promo-arte img { transform: scale(1.05); }
+  .promo-desconto {
+    position: absolute; top: 10px; left: 10px; padding: 4px 10px;
+    font-family: "Big Shoulders Display", sans-serif; font-weight: 800; font-size: 1.1rem;
+    background: var(--verde); color: #0b0d0e; clip-path: var(--degrau-p);
+  }
+  .promo-corpo { padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .promo-corpo h3 { margin: 0; font-size: 1.05rem; line-height: 1.2; }
+  .promo-preco { margin: 0; margin-top: auto; }
+  .promo-preco s { color: var(--texto-fraco); font-size: .9rem; }
+  .promo-preco strong { color: var(--latao-claro); font-family: "Big Shoulders Display", sans-serif; font-size: 1.3rem; margin-left: 6px; }
+  .promo-corpo .botao { align-self: stretch; text-align: center; white-space: nowrap; padding-left: 8px; padding-right: 8px; }
   .links-ref { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
   .links-ref code { font-size: .85rem; user-select: all; }
   .sobe { color: var(--verde); font-weight: 600; }
@@ -1457,8 +1477,9 @@ export function landing(clientId, vitrine) {
                 ? `<div class="campeoes-vivo">${promocoes
                     .filter((s) => s.img)
                     .map((s) => quadroSkin(s, `${s.nome} · -${s.desconto}%`))
-                    .join("")}</div>`
-                : ""
+                    .join("")}</div>
+                   <a class="link-vivo" href="/promocoes">Ver todas as skins em promoção →</a>`
+                : `<a class="link-vivo" href="/promocoes">Ver as skins em promoção →</a>`
             )
           )}
           ${funcao(
@@ -2373,7 +2394,16 @@ function sugestaoDeCanais(config, canais) {
     </details>`;
 }
 
-export function formularioConfig(servidor, config, canais, salvo, status, noticias = []) {
+export function formularioConfig(servidor, config, canais, salvo, status, noticias = [], cargos = []) {
+  // Cargo opcional para marcar junto com cada aviso.
+  const campoCargo = (nome) => `
+        <label class="campo"><span>Marcar cargo <em class="opcional">opcional</em></span><select name="${nome}">${[
+          `<option value="">— não marcar ninguém —</option>`,
+          ...cargos.map(
+            (c) => `<option value="${c.id}"${c.id === config[nome] ? " selected" : ""}>@${escapar(c.name)}</option>`
+          ),
+        ].join("")}</select></label>`;
+
   const opcoesCanais = (selecionado) =>
     [`<option value="">— escolher canal —</option>`]
       .concat(
@@ -2395,6 +2425,9 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
     <h1>${escapar(servidor.name)}</h1>
     ${bannerSalvo}${bannerStatus}
     ${sugestaoDeCanais(config, canais)}
+    <p class="fraco dica-cargo">Cada aviso pode <strong>marcar um cargo</strong> quando for postado (por exemplo
+    <code>@Patch</code> ou <code>@Skins</code>) — é opcional. Para a marcação notificar as pessoas, o cargo precisa
+    estar com <em>"Permitir que qualquer pessoa @mencione este cargo"</em> ligado nas configurações do cargo.</p>
     <form method="POST" id="form-config">
       <div class="cartao">
         <h2>Aviso de patch novo</h2>
@@ -2403,7 +2436,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
           <input type="checkbox" name="patch_enabled" ${config.patch_enabled ? "checked" : ""}>
           Avisar quando sair patch novo
         </label>
-        <label class="campo"><span>Canal</span><select name="patch_channel_id">${opcoesCanais(config.patch_channel_id)}</select></label>
+        <label class="campo"><span>Canal</span><select name="patch_channel_id">${opcoesCanais(config.patch_channel_id)}</select></label>${campoCargo("patch_role_id")}
         <p class="fraco">Avisa só quando sai patch novo (a cada duas semanas, mais ou menos).</p>
         <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-patch">Postar patch agora</button>
       </div>
@@ -2414,7 +2447,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
           <input type="checkbox" name="news_enabled" ${config.news_enabled ? "checked" : ""}>
           Postar as notícias do site oficial
         </label>
-        <label class="campo"><span>Canal</span><select name="news_channel_id">${opcoesCanais(config.news_channel_id)}</select></label>
+        <label class="campo"><span>Canal</span><select name="news_channel_id">${opcoesCanais(config.news_channel_id)}</select></label>${campoCargo("news_role_id")}
         <p class="fraco">CBLOL e outros esports, skins, atualizações do jogo e
         comunicados, em português.</p>
         ${previaNoticias(servidor, noticias)}
@@ -2426,7 +2459,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
           <input type="checkbox" name="sale_enabled" ${config.sale_enabled ? "checked" : ""}>
           Avisar quando entrar promoção nova na loja
         </label>
-        <label class="campo"><span>Canal</span><select name="sale_channel_id">${opcoesCanais(config.sale_channel_id)}</select></label>
+        <label class="campo"><span>Canal</span><select name="sale_channel_id">${opcoesCanais(config.sale_channel_id)}</select></label>${campoCargo("sale_role_id")}
         <p class="fraco">A loja troca as skins em promoção uma vez por semana. O aviso traz cada
         skin com o preço cheio, o preço com desconto e até quando vale.</p>
         <button class="botao vazado discreto" type="submit" formaction="/dashboard/${servidor.id}/postar-promocoes">Postar promoções agora</button>
@@ -2438,7 +2471,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
           <input type="checkbox" name="skins_enabled" ${config.skins_enabled ? "checked" : ""}>
           Avisar quando chegarem skins novas ao jogo
         </label>
-        <label class="campo"><span>Canal</span><select name="skins_channel_id">${opcoesCanais(config.skins_channel_id)}</select></label>
+        <label class="campo"><span>Canal</span><select name="skins_channel_id">${opcoesCanais(config.skins_channel_id)}</select></label>${campoCargo("skins_role_id")}
         <p class="fraco">Sai junto com o patch em que as skins entram no jogo, com a arte de cada uma.</p>
       </div>
       <div class="cartao">
@@ -2448,7 +2481,7 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
           <input type="checkbox" name="youtube_enabled" ${config.youtube_enabled ? "checked" : ""}>
           Avisar os vídeos novos do canal oficial do LoL
         </label>
-        <label class="campo"><span>Canal</span><select name="youtube_channel_id">${opcoesCanais(config.youtube_channel_id)}</select></label>
+        <label class="campo"><span>Canal</span><select name="youtube_channel_id">${opcoesCanais(config.youtube_channel_id)}</select></label>${campoCargo("youtube_role_id")}
         <p class="fraco">Trailers, cinemáticas, clipes e lançamentos do
         <a href="https://www.youtube.com/@leagueoflegends/videos" target="_blank" rel="noopener">canal oficial</a>,
         com a capa do vídeo e um botão para assistir.</p>
@@ -2462,6 +2495,59 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
       </div>
       <button class="botao" type="submit">Salvar</button>
     </form>
+  `;
+}
+
+// Página das skins em promoção (/promocoes): a arte de cada uma, preço cheio
+// riscado, preço com desconto e um botão para a página do campeão no site
+// oficial, onde ficam todas as skins dele. Os dados vêm do OP.GG (o mesmo
+// aviso do Discord) e são atualizados pelo cron.
+export function paginaPromocoes(dados) {
+  const lista = dados?.lista ?? [];
+  const fim = dados?.termina ? new Date(dados.termina) : null;
+  const dataFim = fim
+    ? fim.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", timeZone: "America/Sao_Paulo" })
+    : null;
+  const cartoes = lista
+    .map((s) => {
+      const arte = s.arquivoCampeao
+        ? `${DDRAGON}/cdn/img/champion/loading/${escapar(s.arquivoCampeao)}_${s.skinId % 1000}.jpg`
+        : "";
+      const pagina = s.arquivoCampeao
+        ? `https://www.leagueoflegends.com/pt-br/champions/${escapar(s.arquivoCampeao.toLowerCase())}/`
+        : "https://www.leagueoflegends.com/pt-br/champions/";
+      return `
+        <article class="promo">
+          <a class="promo-arte" href="${pagina}" target="_blank" rel="noopener">
+            ${arte ? `<img src="${arte}" alt="${escapar(s.nome)}" loading="lazy" width="308" height="560">` : ""}
+            <span class="promo-desconto">-${s.desconto}%</span>
+          </a>
+          <div class="promo-corpo">
+            <h3>${escapar(s.nome)}</h3>
+            <p class="promo-preco"><s>${s.precoCheio} RP</s> <strong>${s.preco} RP</strong></p>
+            <a class="botao vazado discreto" href="${pagina}" target="_blank" rel="noopener">Ver no site do LoL ↗</a>
+          </div>
+        </article>`;
+    })
+    .join("");
+
+  return `
+    <a class="voltar" href="/">← início</a>
+    <h1>Skins em promoção</h1>
+    <p class="fraco">${
+      dataFim ? `A promoção da semana vai até <strong>${escapar(dataFim)}</strong>.` : "Promoção da semana na loja do League of Legends."
+    } Preços em RP; a lista muda toda semana.</p>
+    ${
+      lista.length
+        ? `<div class="promos">${cartoes}</div>`
+        : `<div class="cartao"><p>Não consegui carregar as promoções agora. Tenta de novo em alguns minutos.</p></div>`
+    }
+    <div class="cartao">
+      <h2>Receba no seu Discord</h2>
+      <p>O Ward posta a promoção nova no canal que você escolher, toda semana, sem ninguém precisar lembrar.</p>
+      <a class="botao" href="/convidar">Adicionar ao Discord</a>
+    </div>
+    <p class="aviso">Dados de preço: OP.GG. Arte das skins: Riot Games. O Ward não é endossado pela Riot Games.</p>
   `;
 }
 

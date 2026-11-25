@@ -150,6 +150,16 @@ export async function listarCanaisTexto(env, guildId) {
   return canais.filter((c) => c.type === 0);
 }
 
+// Cargos que dá para marcar nos avisos: tira o @everyone (o id dele é o do
+// próprio servidor) e os cargos de bots/integrações (managed). Do mais alto
+// para o mais baixo, como no Discord.
+export async function listarCargos(env, guildId) {
+  const cargos = await api(env, `/guilds/${guildId}/roles`);
+  return cargos
+    .filter((c) => c.id !== guildId && !c.managed)
+    .sort((a, b) => b.position - a.position);
+}
+
 // Dados do servidor: nome, dono (owner_id) e canal de boas-vindas
 // (system_channel_id). Só funciona em servidor onde o bot está.
 export async function pegarServidor(env, guildId) {

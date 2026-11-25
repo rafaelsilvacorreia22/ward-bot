@@ -10,6 +10,7 @@ import {
   json,
   listarServidoresDoBot,
   listarCanaisTexto,
+  listarCargos,
   enviarMensagem,
   apagarMensagem,
   registrarComandosGlobais,
@@ -34,6 +35,7 @@ import {
   paginaTermos,
   paginaUso,
   paginaListaBuilds,
+  paginaPromocoes,
   paginaBuild,
 } from "./paginas.js";
 import {
@@ -96,6 +98,7 @@ import {
 import { traduzirParaPtBr } from "./traducao.js";
 import { buscarNoticias, mensagemDaNoticia } from "./noticias.js";
 import { buscarNotas, mensagemDoPatch, camadasDaArte, FUNDO_PERMITIDO } from "./patchnotes.js";
+import { FLAG_V2 } from "./visual.js";
 
 // Os dois crons do wrangler.jsonc. O texto tem que bater exatamente com o de
 // lá — é por ele que o scheduled sabe qual dos dois disparou.
@@ -301,7 +304,12 @@ async function enfileirar(env, configs, canalDe, mensagens, funcao, { substituir
   for (const config of configs) {
     const canal = canalDe(config);
     if (!canal) continue;
-    for (const m of mensagens) linhas.push([config.guild_id, canal, JSON.stringify(m), funcao, substituir]);
+    // Cargo opcional que o servidor escolheu para este aviso: marca só na
+    // primeira mensagem da leva.
+    const cargo = config[COLUNA_CARGO[funcao]];
+    mensagens.forEach((m, i) =>
+      linhas.push([config.guild_id, canal, JSON.stringify(i === 0 ? comCargo(m, cargo) : m), funcao, substituir])
+    );
   }
   // Várias linhas por INSERT: o plano free também limita consultas por
   // execução (o D1 aceita até 100 parâmetros por consulta: 5 colunas x 20).
@@ -423,6 +431,27 @@ async function repostarPatch(env) {
   await salvarEstado(env, "repost_patch_relatorio", JSON.stringify([...anterior, ...relatorio]));
   if (!alvos.length) await salvarEstado(env, "repost_patch_pedido", "");
   return { relatorio };
+}
+
+// Coluna do cargo a marcar de cada tipo de aviso (ver migracoes/0016).
+const COLUNA_CARGO = {
+  patch: "patch_role_id",
+  noticias: "news_role_id",
+  promocoes: "sale_role_id",
+  skins: "skins_role_id",
+  youtube: "youtube_role_id",
+};
+
+// Põe a menção do cargo no começo da mensagem e libera só aquele cargo para
+// ser marcado (todo o resto continua sem marcar ninguém — ver semMencoes).
+// No layout novo a menção vai num texto antes do bloco colorido.
+function comCargo(corpo, cargoId) {
+  if (!cargoId || !/^\d{5,25}$/.test(cargoId)) return corpo;
+  const mencoes = { parse: [], roles: [cargoId] };
+  if (corpo.flags & FLAG_V2) {
+    return { ...corpo, components: [{ type: 10, content: `<@&${cargoId}>` }, ...corpo.components], allowed_mentions: mencoes };
+  }
+  return { ...corpo, content: `<@&${cargoId}>${corpo.content ? ` ${corpo.content}` : ""}`, allowed_mentions: mencoes };
 }
 
 // Erro que tentar de novo não resolve: o Discord recusou o conteúdo (400),
@@ -717,6 +746,18 @@ async function sincronizarEstado(env) {
 // anunciaria a promoção que já está no ar há dias ou os vídeos antigos do
 // canal em todo servidor. `apenasGuild` (teste) posta só ali e não grava.
 
+const dadosDaPaginaDePromocoes = (lista) => ({
+  termina: lista[0]?.termina ?? null,
+  lista: lista.map((s) => ({
+    nome: s.nome,
+    skinId: s.skinId,
+    arquivoCampeao: s.arquivoCampeao,
+    preco: s.preco,
+    precoCheio: s.precoCheio,
+    desconto: s.desconto,
+  })),
+});
+
 async function checarPromocoes(env, apenasGuild) {
   const lista = await buscarPromocoes(env);
   if (!lista.length) return { vazia: true };
@@ -727,6 +768,9 @@ async function checarPromocoes(env, apenasGuild) {
     "vitrine_promocoes",
     JSON.stringify(lista.slice(0, 4).map((s) => ({ nome: s.nome, img: s.arquivoCampeao, skinId: s.skinId, desconto: s.desconto })))
   ).catch(() => {});
+
+  // Lista inteira para a página /promocoes do site.
+  await salvarEstado(env, "promocoes_atuais", JSON.stringify(dadosDaPaginaDePromocoes(lista))).catch(() => {});
 
   const anterior = await pegarEstado(env, "promocoes_assinatura");
   if (!apenasGuild && (!anterior || anterior === assinatura)) {
@@ -996,7 +1040,7 @@ function caminhoParaContar(caminho) {
   if (typeof caminho !== "string") return null;
   if (/^\/dashboard\/\d+/.test(caminho)) return "/dashboard/servidor";
   if (/^\/build\/[A-Za-z]{2,20}$/.test(caminho)) return caminho;
-  return ["/", "/build", "/dashboard", "/privacidade", "/termos"].includes(caminho) ? caminho : null;
+  return ["/", "/build", "/promocoes", "/dashboard", "/privacidade", "/termos"].includes(caminho) ? caminho : null;
 }
 
 // Por onde a pessoa chegou. Primeiro vale a etiqueta do link
@@ -1328,6 +1372,7 @@ async function rotear(request, env, ctx) {
       const urls = [
         entrada("/", "1.0"),
         entrada("/build", "0.9"),
+        entrada("/promocoes", "0.8"),
         ...campeoes.flatMap((c) => {
           const base = `/build/${encodeURIComponent(c.arquivoImagem)}`;
           return [entrada(base, "0.8"), entrada(`${base}?modo=aram`, "0.6")];
@@ -1341,6 +1386,26 @@ async function rotear(request, env, ctx) {
           .replace(/&/g, "&amp;")}</urlset>`,
         { headers: { "Content-Type": "application/xml; charset=utf-8" } }
       );
+    }
+
+    // Skins em promoção da semana (botão do aviso no Discord e cartão da
+    // inicial). Lê o que o cron guardou; sem nada guardado ainda, busca na hora.
+    if (url.pathname === "/promocoes" && request.method === "GET") {
+      let dados = JSON.parse((await pegarEstado(env, "promocoes_atuais")) ?? "null");
+      if (!dados?.lista?.length) {
+        dados = await buscarPromocoes(env)
+          .then(dadosDaPaginaDePromocoes)
+          .catch(() => null);
+        if (dados?.lista?.length) await salvarEstado(env, "promocoes_atuais", JSON.stringify(dados)).catch(() => {});
+      }
+      return paginaHtml("Skins em promoção no LoL esta semana — Ward", paginaPromocoes(dados), {
+        caminho: "/promocoes",
+        descricao:
+          "Todas as skins do League of Legends em promoção na loja esta semana, com preço cheio, preço com desconto e até quando vale.",
+        imagem: dados?.lista?.[0]?.arquivoCampeao
+          ? `https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${dados.lista[0].arquivoCampeao}_${dados.lista[0].skinId % 1000}.jpg`
+          : undefined,
+      });
     }
 
     // Lista de campeões com link para a build de cada um.
@@ -1500,6 +1565,7 @@ async function rotear(request, env, ctx) {
 
       const dados = await request.formData();
       const campoCanal = { patch: "patch_channel_id", promocoes: "sale_channel_id", youtube: "youtube_channel_id" };
+      const campoCargo = { patch: "patch_role_id", promocoes: "sale_role_id", youtube: "youtube_role_id" };
       const canalId = dados.get(campoCanal[tipo]);
 
       let status = tipo;
@@ -1509,12 +1575,12 @@ async function rotear(request, env, ctx) {
         try {
           if (tipo === "patch") {
             const { corpo } = await construirEmbedPatch(env);
-            await enviarMensagem(env, canalId, corpo);
+            await enviarMensagem(env, canalId, comCargo(corpo, dados.get(campoCargo[tipo])));
           } else if (tipo === "promocoes") {
-            await enviarMensagem(env, canalId, mensagemPromocoes(await buscarPromocoes(env)));
+            await enviarMensagem(env, canalId, comCargo(mensagemPromocoes(await buscarPromocoes(env)), dados.get(campoCargo[tipo])));
           } else {
             const [ultimo] = await buscarVideos(env);
-            await enviarMensagem(env, canalId, mensagemVideo(ultimo));
+            await enviarMensagem(env, canalId, comCargo(mensagemVideo(ultimo), dados.get(campoCargo[tipo])));
           }
         } catch (err) {
           console.log(`Falha ao postar ${tipo} manualmente:`, err.message);
@@ -1566,7 +1632,7 @@ async function rotear(request, env, ctx) {
           const noticia = noticias.find((n) => n.url === escolhida);
           if (!noticia) throw new Error("notícia fora da lista atual");
 
-          await enviarMensagem(env, canalId, mensagemDaNoticia(noticia));
+          await enviarMensagem(env, canalId, comCargo(mensagemDaNoticia(noticia), dados.get("news_role_id")));
           // Marca pra este servidor, pra verificação automática não repetir.
           await marcarNoticiaPostada(env, guildId, noticia.url);
           ctx.waitUntil(
@@ -1599,7 +1665,19 @@ async function rotear(request, env, ctx) {
       let salvo = false;
       if (request.method === "POST") {
         const dados = await request.formData();
+        // Só aceita cargo que existe mesmo no servidor (o formulário poderia
+        // ser forjado com qualquer id).
+        const cargosValidos = new Set((await listarCargos(env, guildId).catch(() => [])).map((c) => c.id));
+        const cargo = (campo) => {
+          const id = dados.get(campo);
+          return id && cargosValidos.has(id) ? id : null;
+        };
         await salvarConfig(env, guildId, {
+          patch_role_id: cargo("patch_role_id"),
+          news_role_id: cargo("news_role_id"),
+          sale_role_id: cargo("sale_role_id"),
+          skins_role_id: cargo("skins_role_id"),
+          youtube_role_id: cargo("youtube_role_id"),
           patch_enabled: dados.get("patch_enabled") === "on",
           patch_channel_id: dados.get("patch_channel_id") || null,
           news_enabled: dados.get("news_enabled") === "on",
@@ -1619,7 +1697,7 @@ async function rotear(request, env, ctx) {
         );
       }
 
-      const [config, canais, noticias] = await Promise.all([
+      const [config, canais, noticias, cargos] = await Promise.all([
         pegarConfig(env, guildId),
         listarCanaisTexto(env, guildId),
         // A prévia é um extra: se o site da Riot não responder, a página de
@@ -1628,11 +1706,12 @@ async function rotear(request, env, ctx) {
           console.log("Não carreguei a prévia de notícias:", err.message);
           return [];
         }),
+        listarCargos(env, guildId).catch(() => []),
       ]);
       const status = url.searchParams.get("status");
       return paginaHtml(
         `Configurar — ${servidor.name}`,
-        formularioConfig(servidor, config, canais, salvo, status, noticias),
+        formularioConfig(servidor, config, canais, salvo, status, noticias, cargos),
         { indexar: false }
       );
     }

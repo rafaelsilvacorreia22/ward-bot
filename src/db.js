@@ -38,9 +38,15 @@ export async function pegarConfig(env, guildId) {
 export async function salvarConfig(env, guildId, config) {
   await env.DB.prepare(
     `INSERT INTO guild_config (guild_id, patch_enabled, patch_channel_id, news_enabled, news_channel_id,
-       sale_enabled, sale_channel_id, skins_enabled, skins_channel_id, youtube_enabled, youtube_channel_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       sale_enabled, sale_channel_id, skins_enabled, skins_channel_id, youtube_enabled, youtube_channel_id,
+       patch_role_id, news_role_id, sale_role_id, skins_role_id, youtube_role_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(guild_id) DO UPDATE SET
+       patch_role_id = excluded.patch_role_id,
+       news_role_id = excluded.news_role_id,
+       sale_role_id = excluded.sale_role_id,
+       skins_role_id = excluded.skins_role_id,
+       youtube_role_id = excluded.youtube_role_id,
        patch_enabled = excluded.patch_enabled,
        patch_channel_id = excluded.patch_channel_id,
        news_enabled = excluded.news_enabled,
@@ -64,7 +70,12 @@ export async function salvarConfig(env, guildId, config) {
       config.skins_enabled ? 1 : 0,
       config.skins_channel_id,
       config.youtube_enabled ? 1 : 0,
-      config.youtube_channel_id
+      config.youtube_channel_id,
+      config.patch_role_id ?? null,
+      config.news_role_id ?? null,
+      config.sale_role_id ?? null,
+      config.skins_role_id ?? null,
+      config.youtube_role_id ?? null
     )
     .run();
 }

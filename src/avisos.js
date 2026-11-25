@@ -79,6 +79,7 @@ export function mensagemPromocoes(lista) {
     divisoria(),
     texto(linhas.join("\n") || "Nenhuma skin em promoção agora."),
     texto("-# Preços em RP · dados OP.GG"),
+    linhaDeBotoes(botaoLink("Ver todas com imagem e preço", "https://wardbot.com.br/promocoes")),
   ]);
 }
 
