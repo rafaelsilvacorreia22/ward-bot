@@ -164,7 +164,15 @@ export const FUNDO_PERMITIDO = /^https:\/\/cmsassets\.rgpub\.io\//;
 export const urlArteDoPatch = (site, numero, fundo) =>
   `${site}/arte/patch/${numero}.jpg?fundo=${encodeURIComponent(fundo)}`;
 
-export function mensagemDoPatch(versao, notas) {
+// O Discord limita cada mensagem a 4.000 caracteres de texto e 40 peças.
+// Em vez de cortar as mudanças com "…", o post continua em mais mensagens
+// (mesmo visual, título "(continuação)"), uma atrás da outra no canal.
+const TEXTO_POR_MENSAGEM = 3800;
+const PECAS_POR_MENSAGEM = 36;
+
+// Monta as mensagens do aviso de patch. Devolve uma lista: quase sempre 1 ou
+// 2 mensagens; cada mudança aparece inteira.
+export function mensagensDoPatch(versao, notas) {
   const numero = versaoPublica(versao).split(".").slice(0, 2).join(".");
   // Fundo: a arte da primeira skin nova do patch (costuma ser a da coleção
   // em destaque, com vários campeões) ou, sem skin, a imagem do artigo.
@@ -172,38 +180,72 @@ export function mensagemDoPatch(versao, notas) {
   const arte = fundo ? urlArteDoPatch(SITE, numero, fundo) : notas.banner;
 
   // Cada campeão com o que mudou e, embaixo em letra pequena, a primeira
-  // mudança como exemplo ("R · Dano: 90/170/250 ⇒ 100/190/280"). O Discord
-  // limita o texto do post inteiro a 4.000 caracteres: com muitos campeões,
-  // o exemplo encurta e, no limite, some.
-  const lista = notas.campeoes.slice(0, MAX_CAMPEOES);
-  const tamanhoExemplo = lista.length > 18 ? 0 : lista.length > 12 ? 80 : 110;
-  const campeoes = lista.map(
+  // mudança inteira ("R · Dano: 90/170/250 ⇒ 100/190/280").
+  const campeoes = notas.campeoes.slice(0, MAX_CAMPEOES).map(
     (c) =>
       `**${c.nome}**${c.partes.length ? ` · ${c.partes.join(", ")}` : ""}` +
-      (c.linha && tamanhoExemplo ? `\n-# ${c.tecla && c.tecla !== "atributos" ? `${c.tecla} · ` : ""}${resumir(c.linha, tamanhoExemplo)}` : "")
+      (c.linha ? `\n-# ${c.tecla && c.tecla !== "atributos" ? `${c.tecla} · ` : ""}${c.linha}` : "")
   );
-  if (notas.campeoes.length > MAX_CAMPEOES) campeoes.push(`…e mais ${notas.campeoes.length - MAX_CAMPEOES}.`);
-
-  const itens = notas.itens
-    .slice(0, MAX_ITENS)
-    .map((i) => `**${i.nome}**${i.linha ? `\n-# ${resumir(i.linha, 110)}` : ""}`);
-
+  if (notas.campeoes.length > MAX_CAMPEOES) campeoes.push(`…e mais ${notas.campeoes.length - MAX_CAMPEOES} nas notas completas.`);
+  const itens = notas.itens.slice(0, MAX_ITENS).map((i) => `**${i.nome}**${i.linha ? `\n-# ${i.linha}` : ""}`);
   const skins = notas.skins.slice(0, 12);
 
-  return mensagemEmBloco(CORES.patch, [
-    arte && galeria([{ url: arte }]),
-    texto(`# Patch ${numero}\n${notas.intro ? citar(resumir(notas.intro, 650)) : "As notas do novo patch saíram!"}`),
-    divisoria(),
-    notas.destaques && texto("## Destaques da atualização"),
-    notas.destaques && galeria([{ url: notas.destaques, descricao: `Destaques do patch ${numero}` }]),
-    divisoria(),
-    campeoes.length && texto(`## Campeões\n${campeoes.join("\n")}`),
-    itens.length && texto(`## Itens\n${itens.join("\n")}`),
-    notas.outras.length && texto(`## Também nesta atualização\n${notas.outras.map((s) => `• ${s}`).join("\n")}`),
-    divisoria(),
-    skins.length && texto(`## Skins novas\n${skins.map((s) => `• ${s.nome}`).join("\n")}`),
-    skins.length && galeria(skins.slice(0, MAX_SKINS_COM_ARTE).map((s) => ({ url: s.imagem, descricao: s.nome }))),
-    divisoria(),
-    linhaDeBotoes(botaoLink("Ler as notas completas", notas.url)),
-  ]);
+  const mensagens = [];
+  let pecas = [];
+  let usado = 0;
+  const fechar = () => {
+    if (pecas.length) mensagens.push(mensagemEmBloco(CORES.patch, pecas));
+    pecas = [];
+    usado = 0;
+  };
+  const cabe = (tamanho, n = 1) => usado + tamanho <= TEXTO_POR_MENSAGEM && pecas.length + n <= PECAS_POR_MENSAGEM;
+  const por = (peca) => {
+    if (!peca) return;
+    if (peca.type === 10) usado += peca.content.length;
+    pecas.push(peca);
+  };
+  // Seção de texto com título; se não couber, quebra entre itens (nunca no
+  // meio de um) e continua na mensagem seguinte.
+  const secao = (titulo, linhas) => {
+    if (!linhas.length) return;
+    let atual = [];
+    let cabecalho = `## ${titulo}`;
+    const soltar = () => {
+      if (atual.length) por(texto(`${cabecalho}\n${atual.join("\n")}`));
+      atual = [];
+    };
+    for (const linha of linhas) {
+      const tamanhoComEsta = `${cabecalho}\n${[...atual, linha].join("\n")}`.length;
+      if (!cabe(tamanhoComEsta)) {
+        soltar();
+        fechar();
+        cabecalho = `## ${titulo} (continuação)`;
+      }
+      atual.push(linha);
+    }
+    soltar();
+  };
+
+  por(arte && galeria([{ url: arte }]));
+  por(texto(`# Patch ${numero}\n${notas.intro ? citar(resumir(notas.intro, 900)) : "As notas do novo patch saíram!"}`));
+  por(divisoria());
+  if (notas.destaques) {
+    por(texto("## Destaques da atualização"));
+    por(galeria([{ url: notas.destaques }]));
+    por(divisoria());
+  }
+  secao("Campeões", campeoes);
+  secao("Itens", itens);
+  secao("Também nesta atualização", notas.outras.map((s) => `• ${s}`));
+  if (skins.length) {
+    const textoSkins = `## Skins novas\n${skins.map((s) => `• ${s.nome}`).join("\n")}`;
+    if (!cabe(textoSkins.length + 2, 3)) fechar();
+    por(divisoria());
+    por(texto(textoSkins));
+    por(galeria(skins.slice(0, MAX_SKINS_COM_ARTE).map((s) => ({ url: s.imagem }))));
+  }
+  por(divisoria());
+  por(linhaDeBotoes(botaoLink("Ler as notas completas", notas.url)));
+  fechar();
+  return mensagens;
 }

@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { lerNotas, mensagemDoPatch, camadasDaArte, urlNotasPt } from "../src/patchnotes.js";
+import { lerNotas, mensagensDoPatch, camadasDaArte, urlNotasPt } from "../src/patchnotes.js";
 import { versaoPublica } from "../src/riot.js";
 import { FLAG_V2 } from "../src/visual.js";
 
@@ -46,15 +46,41 @@ test("skins novas sem cromas e com a arte", () => {
   assert.match(notas.destaques, /^https:\/\/cmsassets\.rgpub\.io\//);
 });
 
-test("post do patch cabe nos limites do Discord", () => {
-  const corpo = mensagemDoPatch("16.22.1", { url: urlNotasPt("16.22.1"), ...notas });
-  assert.equal(corpo.flags, FLAG_V2);
-  const pecas = corpo.components[0].components;
-  assert.ok(pecas.length <= 40, "no máximo 40 peças");
-  const textoTotal = pecas.filter((p) => p.type === 10).reduce((t, p) => t + p.content.length, 0);
-  assert.ok(textoTotal <= 4000, `texto ${textoTotal} > 4000`);
-  assert.match(pecas[0].items[0].media.url, /\/arte\/patch\/26\.22\.jpg\?fundo=/);
-  assert.match(pecas[1].content, /^# Patch 26\.22\n> Esperamos/);
+const textoDe = (msg) =>
+  msg.components[0].components
+    .filter((p) => p.type === 10)
+    .map((p) => p.content)
+    .join("\n");
+
+test("post do patch: cada mensagem cabe nos limites do Discord", () => {
+  const msgs = mensagensDoPatch("16.22.1", { url: urlNotasPt("16.22.1"), ...notas });
+  assert.ok(msgs.length >= 1);
+  for (const m of msgs) {
+    assert.equal(m.flags, FLAG_V2);
+    assert.ok(m.components[0].components.length <= 40, "no máximo 40 peças");
+    assert.ok(textoDe(m).length <= 4000, `texto ${textoDe(m).length} > 4000`);
+  }
+  const primeira = msgs[0].components[0].components;
+  assert.match(primeira[0].items[0].media.url, /\/arte\/patch\/26\.22\.jpg\?fundo=/);
+  assert.match(primeira[1].content, /^# Patch 26\.22\n> Esperamos/);
+  assert.match(JSON.stringify(msgs[msgs.length - 1]), /Ler as notas completas/);
+});
+
+test("mudanças aparecem inteiras, sem reticências", () => {
+  const tudo = mensagensDoPatch("16.22.1", { url: urlNotasPt("16.22.1"), ...notas }).map(textoDe).join("\n");
+  for (const c of notas.campeoes) assert.ok(tudo.includes(c.linha), `${c.nome}: mudança cortada`);
+  assert.ok(!/-# [^\n]*…/.test(tudo), "nenhuma linha de mudança terminando em …");
+});
+
+test("muitas mudanças longas continuam na mensagem seguinte, sem perder ninguém", () => {
+  const longa = "Dano: " + "10/20/30/40/50 (+ 60% do PdH) ".repeat(8) + "⇒ 1/2/3";
+  const campeoes = Array.from({ length: 24 }, (_, i) => ({ nome: `Campeão ${i + 1}`, partes: ["Q"], tecla: "Q", linha: longa }));
+  const msgs = mensagensDoPatch("16.22.1", { ...notas, campeoes, url: urlNotasPt("16.22.1") });
+  assert.ok(msgs.length >= 2, "precisa dividir");
+  const tudo = msgs.map(textoDe).join("\n");
+  for (let i = 1; i <= 24; i++) assert.ok(tudo.includes(`**Campeão ${i}**`), `sumiu o campeão ${i}`);
+  assert.match(tudo, /## Campeões \(continuação\)/);
+  for (const m of msgs) assert.ok(textoDe(m).length <= 4000);
 });
 
 test("arte do patch: camada de fundo e um algarismo por caractere", () => {

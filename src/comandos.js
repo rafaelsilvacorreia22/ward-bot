@@ -2,7 +2,7 @@
 // estiver, sem precisar registrar servidor a servidor.
 
 import { ignorar } from "./log.js";
-import { RESPOSTA, EFEMERA, editarResposta, mapaDeEmojis, emoji } from "./discord.js";
+import { RESPOSTA, EFEMERA, editarResposta, enviarFollowup, mapaDeEmojis, emoji } from "./discord.js";
 import {
   versaoAtual,
   resumoPatchEmIngles,
@@ -15,7 +15,7 @@ import {
 } from "./riot.js";
 import { traduzirParaPtBr } from "./traducao.js";
 import { registrarBuildPedida, pegarEstado, salvarEstado } from "./db.js";
-import { buscarNotas, mensagemDoPatch } from "./patchnotes.js";
+import { buscarNotas, mensagensDoPatch } from "./patchnotes.js";
 import { MODOS, ROTAS, FRAGMENTOS, buscarBuild, buscarCounters, dadosDoJogo } from "./builds.js";
 
 const CAMPEAO = { type: 3, name: "campeao", description: "Campeão", required: true, autocomplete: true };
@@ -172,13 +172,16 @@ export const COMANDOS = {
       // Mesmo post do aviso automático (guardado por versão — ver
       // construirEmbedPatch em index.js); se não der, o resumo simples.
       try {
-        const chave = `post_patch_${versao}`;
-        let corpo = JSON.parse((await pegarEstado(env, chave)) ?? "null");
-        if (!corpo) {
-          corpo = mensagemDoPatch(versao, await buscarNotas(versao));
-          await salvarEstado(env, chave, JSON.stringify(corpo)).catch(ignorar("comandos"));
+        const chave = `post_patch_v2_${versao}`;
+        let mensagens = JSON.parse((await pegarEstado(env, chave)) ?? "null");
+        if (!mensagens) {
+          mensagens = mensagensDoPatch(versao, await buscarNotas(versao));
+          await salvarEstado(env, chave, JSON.stringify(mensagens)).catch(ignorar("comandos"));
         }
-        await editarResposta(interacao, corpo);
+        // A primeira vira a resposta do comando; o resto (continuação) vai
+        // logo abaixo, na mesma conversa.
+        await editarResposta(interacao, mensagens[0]);
+        for (const continuacao of mensagens.slice(1)) await enviarFollowup(interacao, continuacao);
         return;
       } catch (err) {
         console.log("Post completo do /patch indisponível:", err.message);

@@ -101,7 +101,7 @@ import {
 } from "./avisos.js";
 import { traduzirParaPtBr } from "./traducao.js";
 import { buscarNoticias, mensagemDaNoticia } from "./noticias.js";
-import { buscarNotas, mensagemDoPatch, camadasDaArte, FUNDO_PERMITIDO } from "./patchnotes.js";
+import { buscarNotas, mensagensDoPatch, camadasDaArte, FUNDO_PERMITIDO } from "./patchnotes.js";
 import { comCargo, ehRobo, caminhoParaContar, origemDaVisita } from "./regras.js";
 
 // Os dois crons do wrangler.jsonc. O texto tem que bater exatamente com o de
@@ -491,15 +491,20 @@ async function drenarFila(env, limite) {
 // agora" não baixarem a página de novo. Se a página ainda não saiu (o Data
 // Dragon às vezes vira antes do artigo) ou não for reconhecida, cai no aviso
 // simples de antes.
+//
+// Devolve uma LISTA de mensagens: o post completo pode continuar em uma
+// segunda mensagem quando o texto passa do limite do Discord (ver
+// mensagensDoPatch). A chave do cache tem "v2" porque antes guardava uma
+// mensagem só, cortada.
 async function construirEmbedPatch(env) {
   const versao = await versaoAtual();
-  const chave = `post_patch_${versao}`;
+  const chave = `post_patch_v2_${versao}`;
   try {
     const guardado = await pegarEstado(env, chave);
-    if (guardado) return { versao, corpo: JSON.parse(guardado) };
-    const corpo = mensagemDoPatch(versao, await buscarNotas(versao));
-    await salvarEstado(env, chave, JSON.stringify(corpo)).catch(ignorar("index"));
-    return { versao, corpo };
+    if (guardado) return { versao, mensagens: JSON.parse(guardado) };
+    const mensagens = mensagensDoPatch(versao, await buscarNotas(versao));
+    await salvarEstado(env, chave, JSON.stringify(mensagens)).catch(ignorar("index"));
+    return { versao, mensagens };
   } catch (err) {
     console.log("Post completo do patch indisponível, usando o simples:", err.message);
   }
@@ -514,7 +519,7 @@ async function construirEmbedPatch(env) {
   }
   return {
     versao,
-    corpo: { embeds: [{ title: `Saiu o patch ${versaoPublica(versao)}!`, url, description: descricao, color: 0x0ac8b9 }] },
+    mensagens: [{ embeds: [{ title: `Saiu o patch ${versaoPublica(versao)}!`, url, description: descricao, color: 0x0ac8b9 }] }],
   };
 }
 
@@ -527,10 +532,10 @@ async function checarPatch(env, apenasGuild) {
   const anterior = await pegarEstado(env, "last_patch_version");
   if (versaoAtualValor === anterior) return { mudou: false };
 
-  const { versao, corpo } = await construirEmbedPatch(env);
+  const { versao, mensagens } = await construirEmbedPatch(env);
   const todos = await listarPatchAtivo(env);
   const alvos = apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos;
-  await enfileirar(env, alvos, (c) => c.patch_channel_id, [corpo], "patch");
+  await enfileirar(env, alvos, (c) => c.patch_channel_id, mensagens, "patch");
   if (!apenasGuild) await salvarEstado(env, "last_patch_version", versao);
   return { mudou: true, versao, servidores: alvos.length, teste: Boolean(apenasGuild) };
 }
@@ -1464,8 +1469,10 @@ async function rotear(request, env, ctx) {
       } else {
         try {
           if (tipo === "patch") {
-            const { corpo } = await construirEmbedPatch(env);
-            await enviarMensagem(env, canalId, comCargo(corpo, dados.get(campoCargo[tipo])));
+            const { mensagens } = await construirEmbedPatch(env);
+            for (const [i, corpo] of mensagens.entries()) {
+              await enviarMensagem(env, canalId, i === 0 ? comCargo(corpo, dados.get(campoCargo[tipo])) : corpo);
+            }
           } else if (tipo === "promocoes") {
             await enviarMensagem(env, canalId, comCargo(mensagemPromocoes(await buscarPromocoes(env)), dados.get(campoCargo[tipo])));
           } else {
