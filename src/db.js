@@ -261,6 +261,33 @@ export async function usoRecentePorServidor(env) {
   return new Map(results.map((r) => [r.guild_id, r]));
 }
 
+// Comandos por dia (todos os servidores somados) nos últimos 30 dias, para
+// o gráfico do painel admin. Ações do painel e o marcador de limite não entram.
+export async function comandosPorDia(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT dia, SUM(total) AS total FROM comandos_por_dia
+     WHERE dia >= ? AND comando <> '__limite' AND comando NOT LIKE 'painel:%'
+     GROUP BY dia ORDER BY dia`
+  )
+    .bind(diaBrasil(new Date(Date.now() - 29 * 86400000)))
+    .all();
+  return results;
+}
+
+// Detalhes de cada servidor guardados (ver infoDosServidores em index.js).
+export async function pegarInfoServidores(env) {
+  const { results } = await env.DB.prepare(
+    "SELECT key, value FROM bot_state WHERE key LIKE 'info\\_servidor\\_%' ESCAPE '\\'"
+  ).all();
+  const mapa = new Map();
+  for (const r of results) {
+    try {
+      mapa.set(r.key.slice("info_servidor_".length), JSON.parse(r.value));
+    } catch {}
+  }
+  return mapa;
+}
+
 // O detalhe por dia só serve para a semana do painel; depois de 60 dias sai.
 export async function limparComandosPorDia(env) {
   await env.DB.prepare("DELETE FROM comandos_por_dia WHERE dia < ?")

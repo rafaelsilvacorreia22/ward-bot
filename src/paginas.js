@@ -570,6 +570,7 @@ const ESTILO = `
 
   /* ---------- páginas internas ---------- */
   main.conteudo { max-width: 720px; margin: 0 auto; padding: 100px 20px 70px; }
+  main.conteudo.largo { max-width: 1200px; }
   main.cheio { padding: 0; }
   .centro { text-align: center; }
   .voltar {
@@ -692,6 +693,80 @@ const ESTILO = `
   .passos li { padding-left: 4px; }
   .acoes-sugestao { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; align-items: center; }
   .destaque-sugestao { outline: 2px solid var(--verde); outline-offset: 2px; transition: outline-color .6s; }
+  /* ---------- painel de uso: números, gráficos e servidores ---------- */
+  :root { --serie-1: #26a38b; --serie-2: #b48e3a; }
+  :root[data-tema="claro"] { --serie-1: #178a74; --serie-2: #9a7429; }
+  .kpis { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin: 20px 0; }
+  .graficos { grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); }
+  .kpi { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 16px 16px 40px; background: var(--superficie); border: 1px solid var(--linha); clip-path: var(--degrau-p); min-height: 140px; }
+  .kpi-rotulo { font-size: .8rem; color: var(--texto-fraco); }
+  .kpi-valor { font-family: "Big Shoulders Display", sans-serif; font-weight: 800; font-size: 2.3rem; line-height: 1; color: var(--texto); }
+  .kpi .delta { font-size: .82rem; font-weight: 600; }
+  .kpi .delta small { font-weight: 400; color: var(--texto-fraco); }
+  .kpi-detalhe { font-size: .8rem; color: var(--texto-fraco); }
+  .kpi .mini { position: absolute; left: 16px; right: 16px; bottom: 10px; width: calc(100% - 32px); height: 24px; }
+  .kpi .mini polyline { fill: none; stroke: var(--serie-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .saude { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .saude li { display: flex; gap: 10px; align-items: baseline; }
+  .saude li.ok span { color: var(--verde); }
+  .saude li.atencao span { color: var(--alerta); }
+  .saude li.atencao { font-weight: 600; }
+  .graficos { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  main.conteudo .graficos .cartao { margin: 0; }
+  .graficos .cartao h2 { margin-bottom: 4px; }
+  .grafico-svg { width: 100%; height: auto; display: block; margin-top: 10px; overflow: visible; }
+  .grafico-svg .grade { stroke: var(--linha); stroke-width: 1; }
+  .grafico-svg .eixo { fill: var(--texto-fraco); font-size: 12px; font-family: "Spiegel", sans-serif; }
+  .grafico-svg .area-alvo { fill: transparent; }
+  .grafico-svg .alvo:hover .area-alvo { fill: color-mix(in srgb, var(--texto) 6%, transparent); }
+  .grafico-svg path.serie-1 { fill: var(--serie-1); }
+  .grafico-svg path.serie-2 { fill: var(--serie-2); }
+  .grafico-svg .linha-serie-1 { fill: none; stroke: var(--serie-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .grafico-svg .area-serie-1 { fill: var(--serie-1); opacity: .1; }
+  .grafico-svg .ponto-fim { fill: var(--serie-1); stroke: var(--superficie); stroke-width: 2; }
+  .grafico-svg .ponto-hover { fill: var(--serie-1); stroke: var(--superficie); stroke-width: 2; opacity: 0; }
+  .grafico-svg .alvo:hover .ponto-hover { opacity: 1; }
+  .grafico-svg .rotulo-fim { fill: var(--texto); font-size: 13px; font-weight: 600; font-family: "Spiegel", sans-serif; }
+  .legenda-serie { display: flex; gap: 16px; font-size: .82rem; color: var(--texto-fraco); }
+  .legenda-serie i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .legenda-serie i.serie-1 { background: var(--serie-1); }
+  .legenda-serie i.serie-2 { background: var(--serie-2); }
+  .barras-h { display: grid; gap: 10px; margin-top: 12px; }
+  .barra-h { display: grid; grid-template-columns: minmax(110px, 42%) 1fr auto; gap: 10px; align-items: center; font-size: .88rem; }
+  .barra-h-rotulo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .barra-h-rotulo code { background: none; border: 0; padding: 0; }
+  .barra-h-trilho { height: 12px; }
+  .barra-h-trilho i { display: block; height: 12px; background: var(--serie-1); border-radius: 0 4px 4px 0; }
+  .barra-h-valor { font-weight: 600; white-space: nowrap; }
+  .barra-h-valor small { font-weight: 400; color: var(--texto-fraco); }
+  .barra-h:hover .barra-h-trilho i { filter: brightness(1.15); }
+  .titulo-servidores { margin-top: 36px; }
+  .servidores { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); margin: 16px 0; }
+  .servidor { background: var(--superficie); border: 1px solid var(--linha); clip-path: var(--degrau); padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .servidor.suspeito { border-color: var(--alerta); }
+  .servidor-topo { display: flex; gap: 12px; align-items: center; }
+  .servidor-topo h3 { margin: 0; font-size: 1.15rem; line-height: 1.2; }
+  .servidor-topo p { margin: 2px 0 0; font-size: .82rem; }
+  .servidor-icone { width: 48px; height: 48px; border-radius: 14px; flex: none; object-fit: cover; }
+  .servidor-icone.sem { display: grid; place-items: center; background: var(--superficie-2); color: var(--texto-fraco); font-weight: 700; font-size: .85rem; }
+  .sinais { margin: 0; font-size: .85rem; color: var(--alerta); font-weight: 600; }
+  .sinais.ok { color: var(--texto-fraco); font-weight: 400; }
+  .dono { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; padding: 10px; background: var(--superficie-2); }
+  .dono img { width: 36px; height: 36px; border-radius: 50%; }
+  .dono > div:not(.dono-acoes) { display: flex; flex-direction: column; font-size: .88rem; }
+  .dono .fraco { font-size: .8rem; }
+  .dono-acoes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .sem-convite { font-size: .78rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: .75rem; padding: 3px 8px; border: 1px solid var(--linha); color: var(--texto-fraco); }
+  .chip.ligado { border-color: var(--verde); color: var(--texto); }
+  .chip.sem-canal { border-color: var(--alerta); color: var(--alerta); }
+  .uso-servidor, .comandos-servidor { margin: 0; font-size: .88rem; }
+  .comandos-servidor code { background: none; border: 0; padding: 0; }
+  .acoes-servidor summary { cursor: pointer; color: var(--latao); font-size: .88rem; }
+  .acoes-servidor form { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .botao.perigo { color: var(--alerta); border-color: var(--alerta); }
+  .dica { position: fixed; z-index: 50; pointer-events: none; max-width: 280px; padding: 6px 10px; font-size: .82rem; background: var(--fundo); color: var(--texto); border: 1px solid var(--linha); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
   .opcional { font-style: normal; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--texto-fraco); border: 1px solid var(--linha); padding: 1px 6px; margin-left: 6px; }
   .dica-cargo { margin: 14px 0 4px; }
   .link-vivo { display: inline-block; margin-top: 10px; font-size: .9rem; color: var(--latao); }
@@ -953,7 +1028,7 @@ const DESCRICAO_PADRAO =
 const VERSAO_OG = 2;
 
 function layout(titulo, corpo, opcoes = {}) {
-  const classeMain = opcoes.cheio ? "cheio" : "conteudo";
+  const classeMain = opcoes.cheio ? "cheio" : opcoes.largo ? "conteudo largo" : "conteudo";
   const descricao = opcoes.descricao ?? DESCRICAO_PADRAO;
   const imagem = opcoes.imagem ?? `${SITE}/og.png?v=${VERSAO_OG}`;
   // Página só para quem está logado (painel, admin) não deve ir para o
@@ -1841,275 +1916,387 @@ export function paginaTermos() {
   `;
 }
 
-// Seção de estatísticas do painel de uso: acessos ao site dos últimos 30
-// dias, de onde vêm, conversão em "Adicionar ao Discord", builds mais
-// pedidas e o crescimento do bot. Sem dado nenhum de quem visitou.
-function painelEstatisticas(est) {
-  if (!est) return `<div class="cartao"><h2>Estatísticas</h2><p class="fraco">Não consegui carregar agora.</p></div>`;
+// ---------- painel de uso (/admin/uso) ----------
+//
+// Gráficos feitos aqui mesmo, em SVG/HTML, sem biblioteca: colunas por dia,
+// linha de crescimento, barras horizontais e números com minigráfico. Regras
+// seguidas: marcas finas com ponta arredondada, uma escala só por gráfico,
+// grade discreta, texto sempre na cor de texto (a cor é só da marca), e
+// detalhe de cada ponto ao passar o mouse (data-dica — ver o script no fim
+// da página). As duas cores de série (--serie-1, --serie-2) foram validadas
+// para daltonismo nos dois temas.
 
-  // Os 30 dias, do mais antigo para hoje (datas no fuso de Brasília).
-  const base = new Date(`${est.hoje}T12:00:00Z`).getTime();
-  const dias = Array.from({ length: 30 }, (_, i) => new Date(base - (29 - i) * 86400000).toISOString().slice(0, 10));
-  const pessoasDia = new Map(est.porDia.map((r) => [r.dia, r.pessoas]));
-  const novasDia = new Map(est.porDia.map((r) => [r.dia, r.novas]));
-  const vistasDia = new Map(est.vistasPorDia.map((r) => [r.dia, r.vistas]));
-  const eventoEm = (nome, n) =>
-    est.eventos.filter((e) => e.evento === nome && dias.slice(-n).includes(e.dia)).reduce((t, e) => t + e.total, 0);
+const fmt = (v) => Number(v ?? 0).toLocaleString("pt-BR");
+const dataCurtaPainel = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+const diasAtras = (iso) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+const idade = (iso) => {
+  const d = diasAtras(iso);
+  if (d < 1) return "hoje";
+  if (d < 60) return `há ${d} dia${d === 1 ? "" : "s"}`;
+  if (d < 730) return `há ${Math.round(d / 30)} meses`;
+  return `há ${Math.round(d / 365)} anos`;
+};
 
-  const t = est.totais;
-  const n = (v) => Number(v ?? 0).toLocaleString("pt-BR");
-  const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1).replace(".", ",")}%` : "—");
-  const dataCurta = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+function ultimosDias(hoje, n) {
+  const base = new Date(`${hoje}T12:00:00Z`).getTime();
+  return Array.from({ length: n }, (_, i) => new Date(base - (n - 1 - i) * 86400000).toISOString().slice(0, 10));
+}
 
-  const tile = (valor, rotulo) => `<div class="tile"><strong>${valor}</strong><span>${rotulo}</span></div>`;
+// Teto "redondo" para a escala: 1, 2, 5 × 10^k.
+function tetoRedondo(v) {
+  if (v <= 4) return 4;
+  const p = 10 ** Math.floor(Math.log10(v));
+  return [1, 2, 2.5, 5, 10].map((m) => m * p).find((t) => t >= v);
+}
 
-  // Gráfico: pessoas no dia (barra clara) e, dentro dela, quantas eram
-  // novas (barra verde). A diferença são as que voltaram.
-  const maior = Math.max(1, ...dias.map((d) => pessoasDia.get(d) ?? 0));
-  const barras = dias
+const LARG = 600;
+const ALT = 190;
+const M = { esq: 34, dir: 10, topo: 12, base: 24 };
+
+// Barra com ponta arredondada (4px) em cima e reta na base.
+function caminhoColuna(x, y, l, a, arredondar) {
+  if (a <= 0) return "";
+  const r = arredondar ? Math.min(4, l / 2, a) : 0;
+  return `M${x},${y + a}V${y + r}Q${x},${y} ${x + r},${y}H${x + l - r}Q${x + l},${y} ${x + l},${y + r}V${y + a}Z`;
+}
+
+function eixoY(teto, alturaPlot) {
+  return [0, teto / 2, teto]
+    .map((v) => {
+      const y = M.topo + alturaPlot - (v / teto) * alturaPlot;
+      return `<line class="grade" x1="${M.esq}" x2="${LARG - M.dir}" y1="${y}" y2="${y}"/>
+        <text class="eixo" x="${M.esq - 6}" y="${y + 4}" text-anchor="end">${fmt(Math.round(v))}</text>`;
+    })
+    .join("");
+}
+
+function eixoX(dias, posX) {
+  return dias
+    .map((d, i) =>
+      i % 7 === 6 || i === dias.length - 1
+        ? `<text class="eixo" x="${posX(i)}" y="${ALT - 6}" text-anchor="middle">${dataCurtaPainel(d)}</text>`
+        : ""
+    )
+    .join("");
+}
+
+// Colunas por dia, empilhadas quando há mais de uma série. `pontos`:
+// [{ dia, partes: [v1, v2...] }]; `series`: [{ nome, classe }].
+function graficoColunas(dias, pontos, series, unidade) {
+  const porDia = new Map(pontos.map((p) => [p.dia, p.partes]));
+  const totais = dias.map((d) => (porDia.get(d) ?? []).reduce((a, b) => a + (b ?? 0), 0));
+  const teto = tetoRedondo(Math.max(...totais, 0));
+  const larguraPlot = LARG - M.esq - M.dir;
+  const alturaPlot = ALT - M.topo - M.base;
+  const faixa = larguraPlot / dias.length;
+  const largura = Math.min(14, faixa * 0.62);
+  const posX = (i) => M.esq + faixa * i + faixa / 2;
+
+  const colunas = dias
     .map((d, i) => {
-      const p = pessoasDia.get(d) ?? 0;
-      const novas = novasDia.get(d) ?? 0;
-      return `<div class="barra" title="${dataCurta(d)}: ${n(p)} pessoas (${n(novas)} novas, ${n(p - novas)} voltaram) · ${n(vistasDia.get(d))} páginas vistas">
-          <span class="barra-total" style="height:${(p / maior) * 100}%"></span>
-          <span class="barra-unicos" style="height:${(novas / maior) * 100}%"></span>
-          ${i % 5 === 4 || i === 29 ? `<small>${dataCurta(d)}</small>` : ""}
-        </div>`;
+      const partes = porDia.get(d) ?? [];
+      let topo = M.topo + alturaPlot;
+      const ultimaComValor = partes.reduce((u, v, k) => (v > 0 ? k : u), -1);
+      const segmentos = partes
+        .map((v, k) => {
+          if (!v) return "";
+          const a = (v / teto) * alturaPlot;
+          topo -= a;
+          // 2px de folga entre segmentos empilhados.
+          const altura = k < ultimaComValor ? Math.max(0, a - 2) : a;
+          return `<path class="${series[k].classe}" d="${caminhoColuna(posX(i) - largura / 2, topo, largura, altura, k === ultimaComValor)}"/>`;
+        })
+        .join("");
+      const dica = `${dataCurtaPainel(d)} · ${series
+        .map((s, k) => `${s.nome}: ${fmt(partes[k] ?? 0)}`)
+        .join(" · ")}${series.length > 1 ? ` · total ${fmt(totais[i])}` : ""}`;
+      return `<g class="alvo" data-dica="${escapar(dica)}">
+          <rect class="area-alvo" x="${M.esq + faixa * i}" y="${M.topo}" width="${faixa}" height="${alturaPlot}"/>
+          ${segmentos}
+        </g>`;
     })
     .join("");
 
-  // Canais: por onde cada pessoa chegou na primeira vez, e o que fez depois.
-  const nomeCanal = (o) => (o === "direto" ? "direto <span class=\"fraco\">(sem link de origem)</span>" : escapar(o));
-  const linhasCanais = est.canais
-    .map(
-      (c) => `<tr><td>${nomeCanal(c.origem)}</td><td>${n(c.pessoas)}</td><td>${n(c.convidaram)}</td>
-        <td>${pct(c.convidaram, c.pessoas)}</td><td>${n(c.voltaram)}</td></tr>`
+  const total = totais.reduce((a, b) => a + b, 0);
+  return `<svg class="grafico-svg" viewBox="0 0 ${LARG} ${ALT}" role="img" aria-label="${escapar(unidade)} por dia, ${fmt(total)} no período">
+      ${eixoY(teto, alturaPlot)}${colunas}${eixoX(dias, posX)}
+    </svg>`;
+}
+
+// Linha de um valor ao longo dos dias (área bem clara por baixo, ponto e
+// rótulo só no último dia).
+function graficoLinha(dias, valores, nome) {
+  const porDia = new Map(valores.map((p) => [p.dia, p.v]));
+  // Dia sem retrato repete o anterior (o retrato é diário, mas pode falhar).
+  let anterior = null;
+  const serie = dias.map((d) => (porDia.has(d) ? (anterior = porDia.get(d)) : anterior));
+  const conhecidos = serie.filter((v) => v !== null);
+  if (!conhecidos.length) return `<p class="fraco">Ainda sem dados.</p>`;
+  const minimo = Math.min(...conhecidos);
+  const base = Math.max(0, Math.floor(minimo * 0.8));
+  const teto = base + tetoRedondo(Math.max(...conhecidos) - base);
+  const larguraPlot = LARG - M.esq - M.dir;
+  const alturaPlot = ALT - M.topo - M.base;
+  const faixa = larguraPlot / dias.length;
+  const posX = (i) => M.esq + faixa * i + faixa / 2;
+  const posY = (v) => M.topo + alturaPlot - ((v - base) / (teto - base)) * alturaPlot;
+
+  const pts = serie.map((v, i) => (v === null ? null : [posX(i), posY(v)])).filter(Boolean);
+  const linha = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+  const area = `${linha}L${pts[pts.length - 1][0]},${M.topo + alturaPlot}L${pts[0][0]},${M.topo + alturaPlot}Z`;
+  const [ux, uy] = pts[pts.length - 1];
+  const ultimo = conhecidos[conhecidos.length - 1];
+
+  const grade = [base, (base + teto) / 2, teto]
+    .map((v) => {
+      const y = posY(v);
+      return `<line class="grade" x1="${M.esq}" x2="${LARG - M.dir}" y1="${y}" y2="${y}"/>
+        <text class="eixo" x="${M.esq - 6}" y="${y + 4}" text-anchor="end">${fmt(Math.round(v))}</text>`;
+    })
+    .join("");
+  const alvos = dias
+    .map((d, i) =>
+      serie[i] === null
+        ? ""
+        : `<g class="alvo" data-dica="${escapar(`${dataCurtaPainel(d)} · ${nome}: ${fmt(serie[i])}`)}">
+            <rect class="area-alvo" x="${M.esq + faixa * i}" y="${M.topo}" width="${faixa}" height="${alturaPlot}"/>
+            <circle class="ponto-hover" cx="${posX(i)}" cy="${posY(serie[i])}" r="4"/>
+          </g>`
     )
     .join("");
 
-  // Funil dos 30 dias: de quem chegou até quem clicou em adicionar.
-  const etapa = (rotulo, valor) =>
-    `<div class="funil-etapa"><i style="width:${t.pessoas30 ? Math.min(100, (valor / t.pessoas30) * 100) : 0}%"></i>
-      <span>${rotulo}</span><strong>${n(valor)} · ${pct(valor, t.pessoas30)}</strong></div>`;
+  return `<svg class="grafico-svg" viewBox="0 0 ${LARG} ${ALT}" role="img" aria-label="${escapar(nome)}: ${fmt(ultimo)} hoje">
+      ${grade}
+      <path class="area-serie-1" d="${area}"/>
+      <path class="linha-serie-1" d="${linha}"/>
+      ${alvos}
+      <circle class="ponto-fim" cx="${ux}" cy="${uy}" r="4.5"/>
+      <text class="rotulo-fim" x="${Math.min(ux, LARG - M.dir - 4)}" y="${uy - 10}" text-anchor="end">${fmt(ultimo)}</text>
+      ${eixoX(dias, posX)}
+    </svg>`;
+}
 
-  const desde = t.inicio ? dataCurta(t.inicio) : dataCurta(est.hoje);
-
-  const tabela = (titulo, linhas, vazio) => `
-      <div class="cartao">
-        <h2>${titulo}</h2>
-        ${
-          linhas.length
-            ? `<table class="tabela-estat">${linhas.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("")}</table>`
-            : `<p class="fraco">${vazio}</p>`
-        }
-      </div>`;
-
-  const nomesModo = { normal: "partida normal", aram: "ARAM" };
-  const metricas = est.metricas;
-  const primeiro = metricas[0];
-  const ultimo = metricas[metricas.length - 1];
-  const variacao = (a, b) => {
-    const d = (b ?? 0) - (a ?? 0);
-    return d > 0 ? `<span class="sobe">+${n(d)}</span>` : d < 0 ? `<span class="desce">${n(d)}</span>` : `<span class="fraco">±0</span>`;
-  };
-  const maiorServidores = Math.max(1, ...metricas.map((m) => m.servidores));
-  const barrasServidores = metricas
+// Barras horizontais com o valor na ponta. itens: [{ rotulo, valor, extra }].
+function barrasHorizontais(itens, vazio) {
+  if (!itens.length) return `<p class="fraco">${vazio}</p>`;
+  const maior = Math.max(...itens.map((i) => i.valor), 1);
+  return `<div class="barras-h">${itens
     .map(
-      (m) => `<div class="barra" title="${dataCurta(m.dia)}: ${n(m.servidores)} servidores, ${n(m.membros)} membros">
-          <span class="barra-unicos" style="height:${(m.servidores / maiorServidores) * 100}%"></span>
-        </div>`
+      (i) => `<div class="barra-h alvo" data-dica="${escapar(`${i.rotuloTexto ?? i.rotulo}: ${fmt(i.valor)}${i.extraTexto ? ` · ${i.extraTexto}` : ""}`)}">
+        <span class="barra-h-rotulo">${i.rotulo}</span>
+        <span class="barra-h-trilho"><i style="width:${Math.max(2, (i.valor / maior) * 100)}%"></i></span>
+        <span class="barra-h-valor">${fmt(i.valor)}${i.extra ? ` <small>${i.extra}</small>` : ""}</span>
+      </div>`
     )
-    .join("");
+    .join("")}</div>`;
+}
 
-  return `
-    <div class="cartao">
-      <h2>Site — últimos 30 dias</h2>
-      <p class="fraco">Contagem nova desde ${desde}: só conta quem abriu a página
-      num navegador de verdade, cada pessoa uma vez, e você não entra na conta.
-      Os números de antes estavam inflados por robôs e pelos testes.</p>
-      <div class="tiles">
-        ${tile(n(pessoasDia.get(est.hoje)), "pessoas hoje")}
-        ${tile(n(t.pessoas7), "pessoas em 7 dias")}
-        ${tile(n(t.pessoas30), "pessoas em 30 dias")}
-        ${tile(n(t.vistas30), "páginas vistas em 30 dias")}
-        ${tile(n(t.voltaram30), "pessoas que voltaram outro dia")}
-        ${tile(n(t.convidaram30), "pessoas que clicaram em adicionar")}
-        ${tile(pct(t.convidaram30, t.pessoas30), "das pessoas clicaram em adicionar")}
-        ${tile(n(eventoEm("robo_barrado", 30)), "acessos de robô barrados")}
-      </div>
-      <dl class="glossario">
-        <div><dt>Pessoa</dt><dd>Um endereço de internet (IP) diferente. Conta uma vez só no
-          período, não importa quantas vezes entrou ou recarregou.</dd></div>
-        <div><dt>Página vista</dt><dd>Cada página diferente que uma pessoa abriu no dia. Abrir a
-          mesma página de novo no mesmo dia não soma.</dd></div>
-        <div><dt>Voltou</dt><dd>Pessoa que apareceu em mais de um dia — sinal de que o site
-          (ou o /build no site) foi útil.</dd></div>
-      </dl>
-      <div class="grafico" aria-label="Pessoas por dia">${barras}</div>
-      <p class="fraco legenda"><i class="leg-total"></i> pessoas no dia <i class="leg-unicos"></i> pessoas novas
-      (a parte clara acima do verde são as que voltaram).</p>
-    </div>
-
-    <div class="cartao">
-      <h2>De onde vêm as pessoas</h2>
-      <p class="fraco">Por onde cada pessoa chegou na primeira vez, e o que fez depois. É esta
-      tabela que mostra qual divulgação vale a pena.</p>
-      ${
-        linhasCanais
-          ? `<div class="rolagem-x"><table class="tabela-estat colunas">
-              <tr><th>Canal</th><th>Pessoas</th><th>Clicaram adicionar</th><th>Taxa</th><th>Voltaram</th></tr>
-              ${linhasCanais}</table></div>`
-          : `<p class="fraco">Ninguém contado ainda — os números aparecem a partir das próximas visitas.</p>`
-      }
-      <p class="fraco">Quem clica num link dentro do app do Discord quase sempre aparece como
-      <strong>direto</strong>, porque o app não diz de onde a pessoa veio. Para saber, use um
-      link com etiqueta em cada lugar onde divulgar — o nome depois de <code>ref=</code> vira o
-      canal na tabela:</p>
-      <ul class="links-ref">
-        <li><code>https://wardbot.com.br/?ref=tiktok</code></li>
-        <li><code>https://wardbot.com.br/?ref=topgg</code></li>
-        <li><code>https://wardbot.com.br/?ref=servidor-cblol</code></li>
-        <li><code>https://wardbot.com.br/build/Fizz?ref=reddit</code></li>
-      </ul>
-    </div>
-
-    <div class="duas-colunas">
-      <div class="cartao">
-        <h2>Caminho até adicionar</h2>
-        <div class="funil">
-          ${etapa("Entraram no site", t.pessoas30)}
-          ${etapa("Viram alguma build", t.viramBuild30)}
-          ${etapa("Clicaram em adicionar", t.convidaram30)}
-          ${etapa("Entraram no painel", t.entraram30)}
-        </div>
-        <p class="fraco">Porcentagem sobre as pessoas que entraram no site nos últimos 30 dias.</p>
-      </div>
-      ${tabela(
-        "Páginas mais vistas (pessoas)",
-        est.paginas.map((p) => [`<code>${escapar(p.caminho)}</code>`, n(p.pessoas)]),
-        "Nenhuma página vista ainda."
-      )}
-    </div>
-    <div class="duas-colunas">
-      ${tabela(
-        "Builds mais pedidas",
-        est.builds.map((b) => [`${escapar(b.campeao)} <span class="fraco">${nomesModo[b.modo] ?? escapar(b.modo)}</span>`, n(b.total)]),
-        "Ninguém usou o /build desde que a contagem começou."
-      )}
-      <div class="cartao">
-        <h2>Crescimento do bot</h2>
-        ${
-          ultimo
-            ? `<p><strong>${n(ultimo.servidores)}</strong> servidores ${variacao(primeiro.servidores, ultimo.servidores)} ·
-               <strong>${n(ultimo.membros)}</strong> membros ${variacao(primeiro.membros, ultimo.membros)}
-               <span class="fraco">desde ${dataCurta(primeiro.dia)}</span></p>
-               <div class="grafico baixo">${barrasServidores}</div>`
-            : `<p class="fraco">O primeiro retrato sai na próxima hora cheia.</p>`
-        }
-      </div>
+// Número grande com a variação da semana e um minigráfico dos últimos dias.
+function numeroDestaque(rotulo, valor, { variacao = null, periodo = "vs. 7 dias atrás", serie = [], detalhe = "" } = {}) {
+  let mini = "";
+  if (serie.length > 1) {
+    const max = Math.max(...serie, 1);
+    const min = Math.min(...serie, 0);
+    const pts = serie
+      .map((v, i) => `${((i / (serie.length - 1)) * 100).toFixed(1)},${(26 - ((v - min) / (max - min || 1)) * 22).toFixed(1)}`)
+      .join(" ");
+    mini = `<svg class="mini" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}"/></svg>`;
+  }
+  const delta =
+    variacao === null
+      ? ""
+      : `<span class="delta ${variacao > 0 ? "sobe" : variacao < 0 ? "desce" : "fraco"}">${
+          variacao > 0 ? "▲ +" : variacao < 0 ? "▼ " : "= "
+        }${fmt(variacao)} <small>${periodo}</small></span>`;
+  return `<div class="kpi">
+      <span class="kpi-rotulo">${rotulo}</span>
+      <strong class="kpi-valor">${valor}</strong>
+      ${delta}
+      ${detalhe ? `<span class="kpi-detalhe">${detalhe}</span>` : ""}
+      ${mini}
     </div>`;
 }
 
-// Uso recente de comandos (/build, /build-aram, /counter, /patch...) — o que
-// diz se um servidor está fazendo spam. Ações do painel não entram.
-function linhaUsoRecente(u) {
-  if (!u) return `<p class="fraco">Comandos: nenhum nos últimos 7 dias.</p>`;
-  const limite =
-    u.limite24 > 0
-      ? `<span class="tag atencao">bateu no limite ${u.limite24}× nas últimas 24h</span>`
-      : u.limiteSemana > 0
-        ? `<span class="tag">bateu no limite ${u.limiteSemana}× na semana</span>`
-        : "";
-  return `<p>Comandos: <strong>${u.hoje}</strong> hoje · <strong>${u.dia24}</strong> em 24h · <strong>${u.semana}</strong> em 7 dias ${limite}</p>`;
+// Sinais de servidor que vale olhar de perto (bot, conta falsa, teste).
+function sinaisDoServidor(g, info) {
+  const sinais = [];
+  if (info?.criado && diasAtras(info.criado) < 7) sinais.push("servidor criado há menos de 7 dias");
+  if (info?.dono?.criado && diasAtras(info.dono.criado) < 30) sinais.push("dono com conta de menos de 30 dias");
+  if (info?.dono?.bot) sinais.push("o dono é um bot");
+  const membros = info?.membros ?? g.approximate_member_count ?? 0;
+  if (membros < 5) sinais.push(`só ${membros} membro${membros === 1 ? "" : "s"}`);
+  if (info?.online === 0) sinais.push("ninguém online");
+  return sinais;
 }
 
-// Topo do painel: quem mais usou comandos nas últimas 24h e quem bateu no
-// limite de 20 por minuto (possível spam). Clicar leva ao cartão do servidor.
-function painelAtividade(servidores, usoRecente) {
-  if (!usoRecente) return "";
-  const nomes = new Map(servidores.map((g) => [g.id, g.name]));
-  const linhas = [...usoRecente.values()]
-    .filter((u) => u.dia24 > 0 || u.limite24 > 0)
-    .sort((a, b) => b.limite24 - a.limite24 || b.dia24 - a.dia24)
-    .slice(0, 10);
-  const alerta = linhas.filter((u) => u.limite24 > 0);
-  return `
-    <div class="cartao">
-      <h2>Atividade nas últimas 24h</h2>
-      ${
-        alerta.length
-          ? `<p class="banner atencao">⚠️ ${alerta.length === 1 ? "1 servidor bateu" : `${alerta.length} servidores bateram`} no limite de 20 comandos por minuto — pode ser spam. O Ward segura os pedidos extras sozinho; você recebe uma DM na primeira vez de cada dia.</p>`
-          : `<p class="fraco">Nenhum servidor bateu no limite de 20 comandos por minuto. Sem sinal de spam.</p>`
-      }
-      ${
-        linhas.length
-          ? `<table class="tabela-estat colunas">
-              <tr><th>Servidor</th><th>Comandos 24h</th><th>7 dias</th><th>Limite 24h</th></tr>
-              ${linhas
-                .map(
-                  (u) => `<tr><td><a href="#s${escapar(u.guild_id)}">${escapar(nomes.get(u.guild_id) ?? u.guild_id)}</a></td>
-                    <td>${u.dia24}</td><td>${u.semana}</td><td>${u.limite24 ? `<strong class="desce">${u.limite24}×</strong>` : "—"}</td></tr>`
-                )
-                .join("")}
-            </table>`
-          : `<p class="fraco">Ninguém usou comandos nas últimas 24h.</p>`
-      }
-      <p class="fraco">A contagem por dia começou em 18/11/2026; antes disso só existe o total de cada servidor.</p>
-    </div>`;
-}
+const urlIconeServidor = (g, info) =>
+  info?.icone ? `https://cdn.discordapp.com/icons/${g.id}/${info.icone}.png?size=96` : null;
+const urlAvatar = (dono) =>
+  dono?.avatar
+    ? `https://cdn.discordapp.com/avatars/${dono.id}/${dono.avatar}.png?size=64`
+    : `https://cdn.discordapp.com/embed/avatars/${dono?.id ? Number((BigInt(dono.id) >> 22n) % 6n) : 0}.png`;
+
+const NOMES_AVISOS = [
+  ["Patch", "patch_enabled", "patch_channel_id"],
+  ["Notícias", "news_enabled", "news_channel_id"],
+  ["Promoções", "sale_enabled", "sale_channel_id"],
+  ["Skins", "skins_enabled", "skins_channel_id"],
+  ["Vídeos", "youtube_enabled", "youtube_channel_id"],
+];
 
 // Painel privado de acompanhamento (rota /admin/uso). Mostra só dados de
-// servidor e contagem de comandos — nada que identifique pessoas.
+// servidor e contagem de comandos — nada que identifique quem usou.
 export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
   const configPorGuild = new Map(configs.map((c) => [c.guild_id, c]));
+  const est = estadoGlobal.estatisticas;
+  const info = estadoGlobal.infoServidores ?? new Map();
+  const usoRecente = estadoGlobal.usoRecente ?? new Map();
+  const hoje = est?.hoje ?? new Date().toISOString().slice(0, 10);
+  const dias30 = ultimosDias(hoje, 30);
+  const resultado = estadoGlobal.resultadoAviso ?? {};
 
-  // Saúde da fonte do /build. É o único estado que não pertence a um
-  // servidor específico: se o OP.GG parar de responder, o /build de todo
-  // mundo fica preso no cache — e isso tem que aparecer aqui, não só no log.
-  const painelColeta = `<div class="cartao">
-       <h2>Fonte do /build (OP.GG)</h2>
-       ${
-         estadoGlobal.opggErro
-           ? `<p class="banner atencao">A última consulta ao OP.GG falhou</p>
-              <p class="fraco">${escapar(quandoFalhou(estadoGlobal.opggErroEm) || "?")}: ${escapar(estadoGlobal.opggErro)}</p>`
-           : `<p class="fraco">Respondendo normalmente.</p>`
-       }
-       <p class="fraco">${Number(estadoGlobal.buildsEmCache ?? 0)} builds em cache ·
-       emojis de itens/runas: ${estadoGlobal.emojisCompletos ? "completos" : "subindo aos poucos"}.</p>
-     </div>`;
+  // ---- números do topo ----
+  const metricas = est?.metricas ?? [];
+  const metricaEm = (diasAntes) => {
+    const alvo = dias30[dias30.length - 1 - diasAntes];
+    return [...metricas].reverse().find((m) => m.dia <= alvo) ?? null;
+  };
+  const membros = servidores.reduce((s, g) => s + (g.approximate_member_count ?? 0), 0);
+  const semanaPassada = metricaEm(7);
 
-  const usoPorGuild = new Map();
-  for (const u of uso) {
-    if (!usoPorGuild.has(u.guild_id)) usoPorGuild.set(u.guild_id, []);
-    usoPorGuild.get(u.guild_id).push(u);
-  }
+  const comandosDia = new Map((estadoGlobal.serieComandos ?? []).map((r) => [r.dia, r.total]));
+  const serieCmd = dias30.map((d) => comandosDia.get(d) ?? 0);
+  const cmd7 = serieCmd.slice(-7).reduce((a, b) => a + b, 0);
+  const cmd7antes = serieCmd.slice(-14, -7).reduce((a, b) => a + b, 0);
 
-  const membros = servidores.reduce((soma, g) => soma + (g.approximate_member_count ?? 0), 0);
+  const pessoasDia = new Map((est?.porDia ?? []).map((r) => [r.dia, r.pessoas]));
+  const novasDia = new Map((est?.porDia ?? []).map((r) => [r.dia, r.novas]));
+  const t = est?.totais ?? {};
+
   const ativos = servidores.filter((g) => {
     const c = configPorGuild.get(g.id);
-    return c && (c.patch_enabled || c.news_enabled || c.sale_enabled || c.skins_enabled || c.youtube_enabled);
+    return c && NOMES_AVISOS.some(([, l, canal]) => c[l] && c[canal]);
   }).length;
-  const totalComandos = uso.reduce((soma, u) => soma + u.total, 0);
-  const comFalha = servidores.filter((g) => falhasDe(configPorGuild.get(g.id)).length > 0).length;
+  const comFalha = servidores.filter((g) => falhasDe(configPorGuild.get(g.id)).length > 0);
+  const comLimite = [...usoRecente.values()].filter((u) => u.limite24 > 0);
+  const paraOlhar = servidores.filter((g) => sinaisDoServidor(g, info.get(g.id)).length);
 
-  const tile = (valor, rotulo) => `<div class="tile"><strong>${valor}</strong><span>${rotulo}</span></div>`;
+  const kpis = `
+    <div class="kpis">
+      ${numeroDestaque("Servidores", fmt(servidores.length), {
+        variacao: semanaPassada ? servidores.length - semanaPassada.servidores : null,
+        serie: metricas.slice(-14).map((m) => m.servidores),
+        detalhe: `${ativos} com algum aviso ligado`,
+      })}
+      ${numeroDestaque("Membros alcançados", fmt(membros), {
+        variacao: semanaPassada ? membros - semanaPassada.membros : null,
+        serie: metricas.slice(-14).map((m) => m.membros),
+      })}
+      ${numeroDestaque("Comandos em 7 dias", fmt(cmd7), {
+        variacao: cmd7antes || cmd7 ? cmd7 - cmd7antes : null,
+        periodo: "vs. 7 dias antes",
+        serie: serieCmd.slice(-14),
+      })}
+      ${numeroDestaque("Pessoas no site em 7 dias", fmt(t.pessoas7), {
+        serie: dias30.slice(-14).map((d) => pessoasDia.get(d) ?? 0),
+        detalhe: `${fmt(t.pessoas30)} em 30 dias`,
+      })}
+      ${numeroDestaque("Clicaram em adicionar", fmt(t.convidaram30), {
+        detalhe: t.pessoas30 ? `${((t.convidaram30 / t.pessoas30) * 100).toFixed(1).replace(".", ",")}% de quem visitou (30 dias)` : "últimos 30 dias",
+      })}
+    </div>`;
 
-  const aviso = (ligado, canal, hora) => {
-    const temHora = hora !== null && hora !== undefined;
-    const relogio = temHora ? `${String(hora).padStart(2, "0")}:00` : "";
-    // Mostra o horário guardado mesmo com o aviso desligado. Era isso que
-    // escondia o bug do "Hora do Chá": o painel dizia só "desligado" enquanto
-    // um horário diário continuava salvo na linha e disparando a postagem.
-    if (!ligado) {
-      return `<span class="tag">desligado</span>${temHora ? ` <span class="fraco">(${relogio} guardado, sem efeito)</span>` : ""}`;
-    }
-    if (!canal) return `<span class="tag atencao">ligado, sem canal</span>`;
-    const quando = temHora ? `todo dia às ${relogio}` : "quando muda";
-    return `<span class="tag ok">ligado</span> <span class="fraco">${quando}</span>`;
-  };
+  // ---- saúde: o que precisa de atenção agora ----
+  const itemSaude = (ok, texto) =>
+    `<li class="${ok ? "ok" : "atencao"}"><span aria-hidden="true">${ok ? "●" : "▲"}</span> ${texto}</li>`;
+  const saude = `
+    <div class="cartao">
+      <h2>Precisa de atenção?</h2>
+      <ul class="saude">
+        ${itemSaude(!comLimite.length, comLimite.length ? `${comLimite.length} servidor(es) bateram no limite de comandos nas últimas 24h — possível spam` : "Sem sinal de spam nas últimas 24h")}
+        ${itemSaude(!comFalha.length, comFalha.length ? `${comFalha.length} servidor(es) com aviso falhando (veja o cartão de cada um)` : "Todos os avisos estão chegando")}
+        ${itemSaude(!estadoGlobal.opggErro, estadoGlobal.opggErro ? `A fonte do /build (OP.GG) falhou ${escapar(quandoFalhou(estadoGlobal.opggErroEm) || "")}` : `/build respondendo · ${fmt(estadoGlobal.buildsEmCache)} builds em cache`)}
+        ${itemSaude(!paraOlhar.length, paraOlhar.length ? `${paraOlhar.length} servidor(es) com sinais de bot ou teste — <a href="#servidores">ver abaixo</a>` : "Nenhum servidor com cara de bot ou teste")}
+      </ul>
+    </div>`;
 
-  // "Avisar o dono": manda para o dono do servidor o que falta configurar.
-  // Mostra a última vez que foi mandado, para não insistir à toa.
+  // ---- gráficos ----
+  const usoPorComando = new Map();
+  for (const u of uso) {
+    if (u.comando.startsWith("painel:")) continue;
+    usoPorComando.set(u.comando, (usoPorComando.get(u.comando) ?? 0) + u.total);
+  }
+  const topComandos = [...usoPorComando.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([c, v]) => ({ rotulo: `<code>/${escapar(c)}</code>`, rotuloTexto: `/${c}`, valor: v }));
+
+  const canais = (est?.canais ?? []).slice(0, 8).map((c) => {
+    const taxa = c.pessoas ? `${((c.convidaram / c.pessoas) * 100).toFixed(0)}% adicionou` : "";
+    return {
+      rotulo: c.origem === "direto" ? "direto" : escapar(c.origem),
+      rotuloTexto: c.origem,
+      valor: c.pessoas,
+      extra: c.convidaram ? taxa : "",
+      extraTexto: `${fmt(c.convidaram)} clicaram em adicionar`,
+    };
+  });
+
+  const graficos = `
+    <div class="graficos">
+      <div class="cartao">
+        <h2>Servidores</h2>
+        <p class="fraco">Quantos servidores têm o Ward, dia a dia (30 dias).</p>
+        ${graficoLinha(dias30, metricas.map((m) => ({ dia: m.dia, v: m.servidores })), "servidores")}
+      </div>
+      <div class="cartao">
+        <h2>Comandos por dia</h2>
+        <p class="fraco">/build, /counter, /patch… em todos os servidores. Contagem por dia desde 18/11.</p>
+        ${graficoColunas(dias30, dias30.map((d) => ({ dia: d, partes: [comandosDia.get(d) ?? 0] })), [{ nome: "comandos", classe: "serie-1" }], "Comandos")}
+      </div>
+      <div class="cartao">
+        <h2>Pessoas no site</h2>
+        <div class="legenda-serie"><span><i class="serie-1"></i>novas</span><span><i class="serie-2"></i>voltaram</span></div>
+        ${graficoColunas(
+          dias30,
+          dias30.map((d) => {
+            const p = pessoasDia.get(d) ?? 0;
+            const n = novasDia.get(d) ?? 0;
+            return { dia: d, partes: [n, p - n] };
+          }),
+          [
+            { nome: "novas", classe: "serie-1" },
+            { nome: "voltaram", classe: "serie-2" },
+          ],
+          "Pessoas"
+        )}
+      </div>
+      <div class="cartao">
+        <h2>Comandos mais usados</h2>
+        <p class="fraco">Total desde o começo, todos os servidores.</p>
+        ${barrasHorizontais(topComandos, "Ninguém usou comandos ainda.")}
+      </div>
+      <div class="cartao">
+        <h2>De onde vêm as pessoas</h2>
+        <p class="fraco">Por onde cada pessoa chegou pela primeira vez (30 dias). Use links com <code>?ref=</code> para saber de onde vem quem clica no app do Discord.</p>
+        ${barrasHorizontais(canais, "Ninguém contado ainda.")}
+      </div>
+      <div class="cartao">
+        <h2>Caminho até adicionar</h2>
+        <p class="fraco">Das pessoas que entraram no site nos últimos 30 dias.</p>
+        ${barrasHorizontais(
+          [
+            { rotulo: "Entraram no site", valor: t.pessoas30 ?? 0 },
+            { rotulo: "Viram alguma build", valor: t.viramBuild30 ?? 0 },
+            { rotulo: "Clicaram em adicionar", valor: t.convidaram30 ?? 0 },
+            { rotulo: "Entraram no painel", valor: t.entraram30 ?? 0 },
+          ],
+          "Sem visitas ainda."
+        )}
+      </div>
+    </div>`;
+
+  // ---- servidores ----
   const RESULTADOS_AVISO = {
     dm: "✓ Aviso enviado por mensagem privada ao dono.",
     canal: "✓ O dono não aceita mensagem privada — o aviso foi postado no canal de boas-vindas do servidor, marcando ele.",
@@ -2118,90 +2305,133 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
     sem_onde: "Não deu para avisar: o dono não aceita mensagem privada e o Ward não tem permissão de postar em nenhum canal desse servidor. Só alguém de lá pode liberar.",
     erro: "Não consegui mandar o aviso agora — tenta de novo em instantes.",
   };
-  const resultado = estadoGlobal.resultadoAviso ?? {};
-  const blocoAvisarDono = (g, c) => {
-    if (!estadoGlobal.podeAvisarDono) return "";
-    const faltam = faltaConfigurar(c);
-    const ultimo = estadoGlobal.avisosAoDono?.get(g.id);
+  const usoPorGuild = new Map();
+  for (const u of uso) {
+    if (!usoPorGuild.has(u.guild_id)) usoPorGuild.set(u.guild_id, []);
+    usoPorGuild.get(u.guild_id).push(u);
+  }
+
+  const cartaoServidor = (g) => {
+    const c = configPorGuild.get(g.id);
+    const i = info.get(g.id);
+    const sinais = sinaisDoServidor(g, i);
+    const recente = usoRecente.get(g.id);
+    const icone = urlIconeServidor(g, i);
+    const iniciais = escapar(
+      String(g.name)
+        .split(/\s+/)
+        .map((p) => [...p][0] ?? "")
+        .join("")
+        .slice(0, 3)
+    );
+    const nomeSeguro = escapar(String(g.name).replace(/['"\\]/g, ""));
     const banner =
       resultado.servidor === g.id && RESULTADOS_AVISO[resultado.tipo]
         ? `<p class="banner${["dm_fechada", "sem_onde", "erro"].includes(resultado.tipo) ? " atencao" : ""}">${RESULTADOS_AVISO[resultado.tipo]}${
             resultado.erro ? `<br><span class="fraco">O que o Discord respondeu: ${escapar(resultado.erro)}</span>` : ""
           }</p>`
         : "";
-    // Aspas e barra saem do nome antes de ir para dentro do confirm() — senão
-    // um servidor chamado "Bar do Zé's" quebraria o JavaScript do botão.
-    const nomeSeguro = escapar(String(g.name).replace(/['"\\]/g, ""));
+    const falhas = falhasDe(c)
+      .map(
+        ([nome, erro, quando]) =>
+          `<p class="banner atencao">${nome}: ${escapar(explicarFalha(erro))}${
+            quandoFalhou(quando) ? ` <span class="fraco">(${quandoFalhou(quando)})</span>` : ""
+          }</p>`
+      )
+      .join("");
+    const chips = NOMES_AVISOS.map(([nome, l, canal]) => {
+      const estado = !c?.[l] ? "desligado" : c?.[canal] ? "ligado" : "sem-canal";
+      const simbolo = estado === "ligado" ? "✓" : estado === "sem-canal" ? "!" : "–";
+      return `<span class="chip ${estado}" title="${nome}: ${estado.replace("-", " ")}">${simbolo} ${nome}</span>`;
+    }).join("");
+    const comandos = (usoPorGuild.get(g.id) ?? [])
+      .filter((u) => !u.comando.startsWith("painel:"))
+      .map((u) => `<code>/${escapar(u.comando)}</code> ${fmt(u.total)}`)
+      .join(" · ");
+    const dono = i?.dono;
+    const membrosG = i?.membros ?? g.approximate_member_count;
+
     return `
-        ${banner}
-        <form method="POST" action="/admin/avisar-dono/${g.id}"
-              onsubmit="return confirm('Mandar para o dono de ${nomeSeguro} o que falta configurar?')">
-          <button class="botao vazado discreto" type="submit">${
-            faltam.length ? `Avisar o dono: falta${faltam.length === 1 ? "" : "m"} ${faltam.length}` : "Avisar o dono (tudo ligado)"
-          }</button>
-          <span class="fraco">${ultimo ? `último aviso ${escapar(quandoFalhou(ultimo))}` : "nunca avisado"}</span>
-        </form>
-        <form method="POST" action="/admin/sair/${g.id}"
-              onsubmit="return confirm('Tirar o Ward do servidor ${nomeSeguro}? Para voltar, alguém de lá teria que adicionar de novo.')">
-          <input type="hidden" name="nome" value="${escapar(String(g.name))}">
-          <button class="botao vazado discreto" type="submit">Tirar o Ward deste servidor</button>
-        </form>`;
+      <article class="servidor${sinais.length ? " suspeito" : ""}" id="s${g.id}">
+        <header class="servidor-topo">
+          ${icone ? `<img class="servidor-icone" src="${icone}" alt="" width="48" height="48" loading="lazy">` : `<span class="servidor-icone sem">${iniciais}</span>`}
+          <div>
+            <h3>${escapar(g.name)}</h3>
+            <p class="fraco">${fmt(membrosG)} membros${i?.online != null ? ` · ${fmt(i.online)} online` : ""}${i?.criado ? ` · criado ${idade(i.criado)}` : ""}</p>
+          </div>
+        </header>
+        ${banner}${falhas}
+        ${
+          sinais.length
+            ? `<p class="sinais">▲ Vale olhar: ${sinais.map(escapar).join(" · ")}</p>`
+            : i
+              ? `<p class="sinais ok">● Parece um servidor normal</p>`
+              : ""
+        }
+        <div class="dono">
+          ${
+            dono?.usuario
+              ? `<img src="${urlAvatar(dono)}" alt="" width="36" height="36" loading="lazy">
+                 <div>
+                   <strong>${escapar(dono.nome)}</strong> <span class="fraco">@${escapar(dono.usuario)}${dono.bot ? " · bot" : ""}</span>
+                   <span class="fraco">Dono · conta criada ${idade(dono.criado)}</span>
+                 </div>`
+              : `<div><span class="fraco">Dono: ${dono?.id ? `id ${escapar(dono.id)}` : "carregando nos próximos acessos…"}</span></div>`
+          }
+          <div class="dono-acoes">
+            ${dono?.id ? `<a class="botao vazado discreto" href="https://discord.com/users/${escapar(dono.id)}" target="_blank" rel="noopener">Ver perfil do dono</a>` : ""}
+            ${
+              i?.convite
+                ? `<a class="botao vazado discreto" href="https://discord.gg/${escapar(i.convite)}" target="_blank" rel="noopener">Entrar no servidor</a>`
+                : `<span class="fraco sem-convite" title="Sem link público. Para entrar, peça um convite ao dono.">sem convite público</span>`
+            }
+          </div>
+        </div>
+        <div class="chips">${chips}</div>
+        <p class="uso-servidor">${
+          recente
+            ? `<strong>${fmt(recente.hoje)}</strong> comandos hoje · <strong>${fmt(recente.semana)}</strong> em 7 dias${
+                recente.limite24 ? ` <span class="tag atencao">limite ${recente.limite24}× em 24h</span>` : ""
+              }`
+            : `<span class="fraco">Nenhum comando nos últimos 7 dias</span>`
+        }</p>
+        ${comandos ? `<p class="fraco comandos-servidor">${comandos}</p>` : ""}
+        ${
+          estadoGlobal.podeAvisarDono
+            ? `<details class="acoes-servidor">
+                <summary>Ações</summary>
+                <form method="POST" action="/admin/avisar-dono/${g.id}" onsubmit="return confirm('Mandar para o dono de ${nomeSeguro} o que falta configurar?')">
+                  <button class="botao vazado discreto" type="submit">Avisar o dono${
+                    faltaConfigurar(c).length ? ` (faltam ${faltaConfigurar(c).length})` : " (tudo ligado)"
+                  }</button>
+                  <span class="fraco">${
+                    estadoGlobal.avisosAoDono?.get(g.id) ? `último aviso ${escapar(quandoFalhou(estadoGlobal.avisosAoDono.get(g.id)))}` : "nunca avisado"
+                  }</span>
+                </form>
+                <form method="POST" action="/admin/sair/${g.id}" onsubmit="return confirm('Tirar o Ward do servidor ${nomeSeguro}? Para voltar, alguém de lá teria que adicionar de novo.')">
+                  <input type="hidden" name="nome" value="${escapar(String(g.name))}">
+                  <button class="botao vazado discreto perigo" type="submit">Tirar o Ward deste servidor</button>
+                </form>
+                <p class="fraco">id ${g.id}</p>
+              </details>`
+            : ""
+        }
+      </article>`;
   };
 
-  const cartoes = servidores
-    .map((g) => {
-      const c = configPorGuild.get(g.id);
-      // Comandos do Discord aparecem como /nome; ações feitas no painel vêm
-      // gravadas com o prefixo "painel:" e são mostradas separadas.
-      const eventos = usoPorGuild.get(g.id) ?? [];
-      const formatar = (u) =>
-        u.comando.startsWith("painel:")
-          ? `<span class="tag">painel</span> ${escapar(u.comando.slice(7))} ${u.total}`
-          : `<code>/${escapar(u.comando)}</code> ${u.total}`;
-      const listaComandos = eventos.length
-        ? eventos.map(formatar).join(" · ")
-        : `<span class="fraco">nada usado ainda</span>`;
+  // Suspeitos primeiro; depois os maiores.
+  const ordenados = [...servidores].sort(
+    (a, b) =>
+      sinaisDoServidor(b, info.get(b.id)).length - sinaisDoServidor(a, info.get(a.id)).length ||
+      (b.approximate_member_count ?? 0) - (a.approximate_member_count ?? 0)
+  );
 
-      // Só lista o que está falhando — servidor saudável não ganha linha.
-      const falhas = falhasDe(c)
-        .map(
-          ([nome, erro, quando]) =>
-            `<p class="banner atencao">${nome}: ${escapar(explicarFalha(erro))}${
-              quandoFalhou(quando) ? ` <span class="fraco">(${quandoFalhou(quando)})</span>` : ""
-            }</p>`
-        )
-        .join("");
-
-      return `
-      <div class="cartao" id="s${g.id}">
-        <h2>${escapar(g.name)}</h2>
-        <p class="fraco">${g.approximate_member_count ?? "?"} membros · id ${g.id}</p>
-        ${falhas}
-        <p>Patch: ${aviso(c?.patch_enabled, c?.patch_channel_id, null)}</p>
-        <p>Notícias: ${aviso(c?.news_enabled, c?.news_channel_id, null)}</p>
-        <p>Promoções: ${aviso(c?.sale_enabled, c?.sale_channel_id, null)}</p>
-        <p>Skins novas: ${aviso(c?.skins_enabled, c?.skins_channel_id, null)}</p>
-        <p>YouTube: ${aviso(c?.youtube_enabled, c?.youtube_channel_id, null)}</p>
-        ${linhaUsoRecente(estadoGlobal.usoRecente?.get(g.id))}
-        <p>${listaComandos}</p>
-        ${blocoAvisarDono(g, c)}
-      </div>`;
-    })
-    .join("");
-
-  // Configurações de servidores de onde o bot já saiu: ajuda a perceber
-  // desistências que não apareceriam na lista acima.
   const idsAtuais = new Set(servidores.map((g) => g.id));
   const saiu = configs.filter((c) => !idsAtuais.has(c.guild_id));
-  const bloqueSaiu = saiu.length
-    ? `<div class="cartao"><h2>Saíram do servidor</h2><p class="fraco">${saiu
-        .map((c) => escapar(c.guild_id))
-        .join(", ")}</p></div>`
-    : "";
 
   return `
     <a class="voltar" href="/">← início</a>
-    <h1>Uso do Ward</h1>
+    <h1>Painel do Ward</h1>
     ${
       resultado.tipo === "saiu"
         ? `<p class="banner">✓ O Ward saiu do servidor${resultado.nome ? ` <strong>${escapar(resultado.nome)}</strong>` : ""}
@@ -2211,20 +2441,34 @@ export function paginaUso(servidores, configs, uso, estadoGlobal = {}) {
              ${resultado.erro ? `<span class="fraco">Resposta do Discord: ${escapar(resultado.erro)}</span>` : ""}</p>`
           : ""
     }
-    <div class="tiles">
-      ${tile(servidores.length, "servidores")}
-      ${tile(ativos, "com aviso ligado")}
-      ${tile(membros.toLocaleString("pt-BR"), "membros alcançados")}
-      ${tile(totalComandos, "comandos usados")}
-      ${tile(comFalha, "com falha no envio")}
-    </div>
-    ${painelAtividade(servidores, estadoGlobal.usoRecente)}
-    ${painelEstatisticas(estadoGlobal.estatisticas)}
-    ${painelColeta}
-    ${cartoes}
-    ${bloqueSaiu}
-    <p class="aviso">Esta página conta uso por servidor. Ela não mostra (nem o
-    bot guarda) quem executou cada comando.</p>
+    ${kpis}
+    ${saude}
+    ${est ? graficos : `<div class="cartao"><p class="fraco">Não consegui carregar as estatísticas agora.</p></div>`}
+    <h2 class="titulo-servidores" id="servidores">Servidores <span class="fraco">(${servidores.length})</span></h2>
+    <p class="fraco">Os com sinais de bot ou teste aparecem primeiro. "Ver perfil do dono" abre o perfil dele no Discord
+    para você chamar no privado. "Entrar no servidor" só aparece quando o servidor tem link público; sem ele, só o dono
+    pode te convidar. Os dados de dono e servidor são atualizados a cada 12 horas.</p>
+    <div class="servidores">${ordenados.map(cartaoServidor).join("")}</div>
+    ${saiu.length ? `<div class="cartao"><h2>Saíram</h2><p class="fraco">${saiu.map((c) => escapar(c.guild_id)).join(", ")}</p></div>` : ""}
+    <p class="aviso">Esta página conta uso por servidor. Ela não mostra (nem o bot guarda) quem executou cada comando.</p>
+    <div class="dica" id="dica" role="tooltip" hidden></div>
+    <script>
+      (function () {
+        var dica = document.getElementById("dica");
+        function mostrar(e) {
+          var alvo = e.target.closest && e.target.closest("[data-dica]");
+          if (!alvo) { dica.hidden = true; return; }
+          dica.textContent = alvo.getAttribute("data-dica");
+          dica.hidden = false;
+          var x = Math.min(e.clientX + 14, window.innerWidth - dica.offsetWidth - 8);
+          var y = e.clientY - dica.offsetHeight - 12;
+          dica.style.left = x + "px";
+          dica.style.top = (y < 8 ? e.clientY + 18 : y) + "px";
+        }
+        document.addEventListener("pointermove", mostrar);
+        document.addEventListener("pointerleave", function () { dica.hidden = true; });
+      })();
+    </script>
   `;
 }
 

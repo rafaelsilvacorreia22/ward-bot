@@ -12,6 +12,7 @@ import {
   listarServidoresDoBot,
   listarCanaisTexto,
   listarCargos,
+  pegarUsuario,
   enviarMensagem,
   apagarMensagem,
   registrarComandosGlobais,
@@ -64,6 +65,8 @@ import {
   registrarEvento,
   registrarLimiteAtingido,
   usoRecentePorServidor,
+  comandosPorDia,
+  pegarInfoServidores,
   limparComandosPorDia,
   salvarMetricaDiaria,
   limparVisitantesAntigos,
@@ -183,6 +186,59 @@ async function tratarInteracao(interacao, env, ctx, origin) {
   }
 
   return json({ type: RESPOSTA.PONG });
+}
+
+// Detalhes de cada servidor para o painel admin: dono (nome, @, avatar, idade
+// da conta), quando o servidor foi criado, membros online, link de convite
+// público (se o servidor tiver um endereço personalizado) e sinais de
+// servidor suspeito. O Discord só entrega isso com 2 chamadas por servidor,
+// então fica guardado por 12 horas e no máximo 8 são atualizados por
+// carregamento da página (o resto vai nos próximos).
+const VALIDADE_INFO_SERVIDOR_MS = 12 * 3600000;
+const INFO_POR_CARREGAMENTO = 8;
+
+// Data de criação embutida no id do Discord (snowflake).
+const criadoEm = (id) => new Date(Number((BigInt(id) >> 22n) + 1420070400000n)).toISOString();
+
+async function infoDosServidores(env, servidores) {
+  const guardadas = await pegarInfoServidores(env).catch(() => new Map());
+  const agora = Date.now();
+  const vencidas = servidores
+    .filter((g) => !guardadas.has(g.id) || agora - (guardadas.get(g.id).em ?? 0) > VALIDADE_INFO_SERVIDOR_MS)
+    .slice(0, INFO_POR_CARREGAMENTO);
+
+  await Promise.all(
+    vencidas.map(async (g) => {
+      try {
+        const servidor = await api(env, `/guilds/${g.id}?with_counts=true`);
+        const dono = await pegarUsuario(env, servidor.owner_id).catch(() => null);
+        const info = {
+          em: agora,
+          criado: criadoEm(g.id),
+          online: servidor.approximate_presence_count ?? null,
+          membros: servidor.approximate_member_count ?? null,
+          convite: servidor.vanity_url_code ?? null,
+          icone: servidor.icon ?? null,
+          descricao: servidor.description ?? null,
+          dono: dono
+            ? {
+                id: dono.id,
+                usuario: dono.username,
+                nome: dono.global_name ?? dono.username,
+                avatar: dono.avatar ?? null,
+                bot: Boolean(dono.bot),
+                criado: criadoEm(dono.id),
+              }
+            : { id: servidor.owner_id },
+        };
+        guardadas.set(g.id, info);
+        await salvarEstado(env, `info_servidor_${g.id}`, JSON.stringify(info));
+      } catch (err) {
+        console.log(`Não peguei os detalhes do servidor ${g.id}:`, err.message);
+      }
+    })
+  );
+  return guardadas;
 }
 
 // Servidor bateu no limite de comandos por minuto: possível spam. Conta no
@@ -977,7 +1033,7 @@ async function rotear(request, env, ctx) {
       if (!sessao || !dono || sessao.usuario_id !== dono) {
         return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
       }
-      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos, avisosAoDono, estatisticas, usoRecente] =
+      const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos, avisosAoDono, estatisticas, usoRecente, serieComandos] =
         await Promise.all([
           listarServidoresDoBot(env),
           listarTodasConfigs(env),
@@ -992,7 +1048,9 @@ async function rotear(request, env, ctx) {
             return null;
           }),
           usoRecentePorServidor(env).catch(() => new Map()),
+          comandosPorDia(env).catch(() => []),
         ]);
+      const infoServidores = await infoDosServidores(env, servidores);
       // Aproveita a lista que acabou de chegar para atualizar o retrato de
       // hoje do gráfico de crescimento.
       ctx.waitUntil(
@@ -1015,6 +1073,8 @@ async function rotear(request, env, ctx) {
           avisosAoDono,
           estatisticas,
           usoRecente,
+          serieComandos,
+          infoServidores,
           podeAvisarDono: !temChave,
           resultadoAviso: {
             tipo: url.searchParams.get("aviso"),
@@ -1023,7 +1083,7 @@ async function rotear(request, env, ctx) {
             erro: url.searchParams.get("erro"),
           },
         }),
-        { indexar: false }
+        { indexar: false, largo: true }
       );
       // Tira este aparelho da contagem de acessos: o dono testando o site não
       // é visitante. Vale por um ano, em cada navegador onde ele abrir aqui.

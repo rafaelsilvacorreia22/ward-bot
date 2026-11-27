@@ -150,6 +150,11 @@ export async function listarCanaisTexto(env, guildId) {
   return canais.filter((c) => c.type === 0);
 }
 
+// Perfil público de um usuário do Discord (nome, @, avatar, se é bot).
+export async function pegarUsuario(env, usuarioId) {
+  return api(env, `/users/${usuarioId}`);
+}
+
 // Cargos que dá para marcar nos avisos: tira o @everyone (o id dele é o do
 // próprio servidor) e os cargos de bots/integrações (managed). Do mais alto
 // para o mais baixo, como no Discord.
