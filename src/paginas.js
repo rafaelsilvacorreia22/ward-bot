@@ -767,6 +767,8 @@ const ESTILO = `
   .acoes-servidor form { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .botao.perigo { color: var(--alerta); border-color: var(--alerta); }
   .dica { position: fixed; z-index: 50; pointer-events: none; max-width: 280px; padding: 6px 10px; font-size: .82rem; background: var(--fundo); color: var(--texto); border: 1px solid var(--linha); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  .toast-salvo { position: fixed; left: 50%; bottom: 24px; translate: -50% 0; z-index: 60; padding: 10px 18px; background: var(--superficie); border: 1px solid var(--verde); color: var(--texto); font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.4); clip-path: var(--degrau-p); }
+  .toast-salvo.erro { border-color: var(--alerta); color: var(--alerta); }
   .opcional { font-style: normal; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--texto-fraco); border: 1px solid var(--linha); padding: 1px 6px; margin-left: 6px; }
   .dica-cargo { margin: 14px 0 4px; }
   .link-vivo { display: inline-block; margin-top: 10px; font-size: .9rem; color: var(--latao); }
@@ -2605,7 +2607,7 @@ function sugestaoDeCanais(config, canais) {
         <li><strong>Dica:</strong> deixe os canais só para leitura (tire <em>Enviar mensagens</em> do
           @everyone). Assim os avisos não se perdem no meio da conversa.</li>
         <li><strong>Volte aqui</strong>, atualize a página e escolha cada canal no aviso certo — ou
-          use o botão abaixo, que preenche sozinho. Depois é só clicar em <strong>Salvar</strong>.</li>
+          use o botão abaixo, que preenche sozinho. As mudanças salvam sozinhas.</li>
       </ol>
       <div class="acoes-sugestao">
         ${
@@ -2617,7 +2619,7 @@ function sugestaoDeCanais(config, canais) {
       </div>
       ${
         algumAchado
-          ? `<p class="fraco">O botão escolhe os canais que achei pelo nome e liga os avisos. Nada é salvo até você clicar em Salvar.</p>
+          ? `<p class="fraco">O botão escolhe os canais que achei pelo nome, liga os avisos e já salva.</p>
              <script>
                document.getElementById("aplicar-sugestao").addEventListener("click", function () {
                  var mapa = ${JSON.stringify(mapa)};
@@ -2630,6 +2632,7 @@ function sugestaoDeCanais(config, canais) {
                    if (ligar) ligar.checked = true;
                    select.closest(".cartao").classList.add("destaque-sugestao");
                  });
+                 form.dispatchEvent(new Event("change", { bubbles: true }));
                  form.scrollIntoView({ behavior: "smooth" });
                });
              </script>`
@@ -2738,6 +2741,34 @@ export function formularioConfig(servidor, config, canais, salvo, status, notici
         <p class="fraco">Também dá para ver pelo site: <a href="/build">lista de builds</a>.</p>
       </div>
       <button class="botao" type="submit">Salvar</button>
+      <p class="fraco" id="aviso-autosave">As mudanças salvam sozinhas assim que você marca ou escolhe algo.</p>
+      <div class="toast-salvo" id="toast-salvo" role="status" aria-live="polite" hidden></div>
+      <script>
+        (function () {
+          var form = document.getElementById("form-config");
+          var toast = document.getElementById("toast-salvo");
+          if (!form || !window.fetch) return;
+          var timer = null, salvando = false, pendente = false, esconder = null;
+          function aviso(texto, erro) {
+            toast.textContent = texto;
+            toast.className = "toast-salvo" + (erro ? " erro" : "");
+            toast.hidden = false;
+            clearTimeout(esconder);
+            if (!erro) esconder = setTimeout(function () { toast.hidden = true; }, 2200);
+          }
+          function salvar() {
+            if (salvando) { pendente = true; return; }
+            salvando = true;
+            aviso("Salvando…");
+            fetch(form.action || location.href, { method: "POST", body: new FormData(form), headers: { "X-Autosave": "1" }, credentials: "same-origin" })
+              .then(function (r) { if (!r.ok) throw new Error(r.status); aviso("✓ Salvo"); })
+              .catch(function () { aviso("Não consegui salvar — tenta de novo ou clique em Salvar lá embaixo.", true); })
+              .finally(function () { salvando = false; if (pendente) { pendente = false; salvar(); } });
+          }
+          // Caixinha, lista de canal ou de cargo: salva 0,4 s depois da última mudança.
+          form.addEventListener("change", function () { clearTimeout(timer); timer = setTimeout(salvar, 400); });
+        })();
+      </script>
     </form>
   `;
 }

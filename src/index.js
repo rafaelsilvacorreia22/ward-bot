@@ -1592,6 +1592,9 @@ async function rotear(request, env, ctx) {
             console.log("Não contabilizei o salvamento:", err.message)
           )
         );
+        // Salvamento automático (a própria página manda este cabeçalho ao
+        // mudar uma caixinha ou lista): responde só "ok", sem montar a página.
+        if (request.headers.get("X-Autosave") === "1") return json({ ok: true });
       }
 
       const [config, canais, noticias, cargos] = await Promise.all([

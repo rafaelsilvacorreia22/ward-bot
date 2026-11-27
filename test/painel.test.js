@@ -33,3 +33,13 @@ test("servidor com endereço público ganha o botão de entrar", () => {
   });
   assert.match(html, /discord\.gg\/aberto/);
 });
+
+test("formulário do servidor salva sozinho, sem depender do botão Salvar", async () => {
+  const { formularioConfig } = await import("../src/paginas.js");
+  const html = formularioConfig({ id: "100000000000000009", name: "X" }, { guild_id: "1" }, [], false, null, [], []);
+  assert.match(html, /"X-Autosave": "1"/);
+  assert.match(html, /addEventListener\("change"/);
+  assert.match(html, /id="toast-salvo"/);
+  // continua funcionando sem JavaScript
+  assert.match(html, /<button class="botao" type="submit">Salvar<\/button>/);
+});
