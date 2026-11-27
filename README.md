@@ -226,3 +226,10 @@ Discord nem o limite de sub-requests do Worker (50 por execução no plano
 free da Cloudflare). Se o Ward crescer além de uns 30–40 servidores com
 alertas ligados ao mesmo tempo, vale migrar pro plano pago da Cloudflare ou
 trocar o loop por uma fila (Cloudflare Queues).
+
+## Licença
+
+Código aberto sob a [licença MIT](LICENSE): qualquer pessoa pode usar, copiar,
+modificar e distribuir, desde que mantenha o aviso de copyright. Nomes, imagens
+e dados de League of Legends pertencem à Riot Games e não estão cobertos por
+esta licença.
