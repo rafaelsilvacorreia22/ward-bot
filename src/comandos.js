@@ -1,6 +1,7 @@
 // Slash commands globais — funcionam em qualquer servidor onde o Ward
 // estiver, sem precisar registrar servidor a servidor.
 
+import { ignorar } from "./log.js";
 import { RESPOSTA, EFEMERA, editarResposta, mapaDeEmojis, emoji } from "./discord.js";
 import {
   versaoAtual,
@@ -175,7 +176,7 @@ export const COMANDOS = {
         let corpo = JSON.parse((await pegarEstado(env, chave)) ?? "null");
         if (!corpo) {
           corpo = mensagemDoPatch(versao, await buscarNotas(versao));
-          await salvarEstado(env, chave, JSON.stringify(corpo)).catch(() => {});
+          await salvarEstado(env, chave, JSON.stringify(corpo)).catch(ignorar("comandos"));
         }
         await editarResposta(interacao, corpo);
         return;
@@ -253,7 +254,7 @@ export const COMANDOS = {
         embeds: [embedDaBuild({ campeao, build, dados, emojis, versao, origin })],
       });
       // Para o painel de administração saber quais builds o pessoal pede.
-      await registrarBuildPedida(env, campeao.nome, modo).catch(() => {});
+      await registrarBuildPedida(env, campeao.nome, modo).catch(ignorar("comandos"));
     },
 
     // Sugestões enquanto a pessoa digita. Tem que responder em menos de 3s,

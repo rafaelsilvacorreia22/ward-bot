@@ -1,3 +1,7 @@
 node_modules/
 .wrangler/
 .dev.vars
+# Cópia do banco: tem dados dos servidores, nunca vai para o GitHub.
+backup-d1.sql
+# Rascunho antigo de design, só local.
+design-2.0/

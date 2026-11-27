@@ -6,6 +6,7 @@
 // montar a listagem. O "buildId" dessa URL muda a cada publicação do site,
 // então é lido da página antes de cada busca, em vez de ficar fixo no código.
 
+import { ignorar } from "./log.js";
 import { pegarEstado, salvarEstado } from "./db.js";
 import { CORES, texto, galeria, botaoLink, linhaDeBotoes, mensagemEmBloco, resumir } from "./visual.js";
 
@@ -68,7 +69,7 @@ export async function buscarNoticias(env) {
   const lista = await listaComBuildId(buildId);
   if (!lista) throw new Error("Lista de notícias -> não respondeu nem com buildId recém-descoberto");
   if (env && buildId !== guardado) {
-    await salvarEstado(env, "news_build_id", buildId).catch(() => {});
+    await salvarEstado(env, "news_build_id", buildId).catch(ignorar("noticias"));
   }
   return lista;
 }

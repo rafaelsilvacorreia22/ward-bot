@@ -11,6 +11,7 @@
 // https://github.com/opgginc/opgg-mcp. u.gg, Porofessor e Mobalytics bloqueiam
 // acesso automatizado, então não entram.
 
+import { ignorar } from "./log.js";
 import { pegarEstado, salvarEstado, limparCacheAntigo, pegarCacheBuild, salvarCacheBuild } from "./db.js";
 
 const DDRAGON = "https://ddragon.leagueoflegends.com";
@@ -357,7 +358,7 @@ export async function buscarBuild(env, campeao, modo = "normal", rota) {
     if (!rota && modo !== "aram") {
       const principal = normalizar(dados ?? {}, modo, palpite).rotas[0]?.rota;
       if (principal && ROTAS[principal]) {
-        await salvarCacheBuild(env, `rota:${nome}`, JSON.stringify(principal)).catch(() => {});
+        await salvarCacheBuild(env, `rota:${nome}`, JSON.stringify(principal)).catch(ignorar("builds"));
         if (principal !== palpite) {
           dados = await pedir(principal);
           rotaFinal = principal;
@@ -370,12 +371,12 @@ export async function buscarBuild(env, campeao, modo = "normal", rota) {
     await salvarCacheBuild(env, `build:${nome}:${modo}:${modo === "aram" ? "-" : rotaFinal}`, JSON.stringify(build)).catch(
       (err) => console.log("Não guardei a build no cache:", err.message)
     );
-    await salvarEstado(env, "opgg_erro", "").catch(() => {});
+    await salvarEstado(env, "opgg_erro", "").catch(ignorar("builds"));
     return build;
   } catch (err) {
     console.log(`OP.GG falhou para ${nome}:`, err.message);
-    await salvarEstado(env, "opgg_erro", String(err.message).slice(0, 300)).catch(() => {});
-    await salvarEstado(env, "opgg_erro_em", new Date().toISOString()).catch(() => {});
+    await salvarEstado(env, "opgg_erro", String(err.message).slice(0, 300)).catch(ignorar("builds"));
+    await salvarEstado(env, "opgg_erro_em", new Date().toISOString()).catch(ignorar("builds"));
     if (cache.valor) return cache.valor; // velha, mas melhor que nada
     throw err;
   }
@@ -431,7 +432,7 @@ export async function buscarCounters(env, campeao, rota) {
     if (!rota) {
       const principal = rotas(dados)[0]?.rota;
       if (principal && ROTAS[principal]) {
-        await salvarCacheBuild(env, `rota:${nome}`, JSON.stringify(principal)).catch(() => {});
+        await salvarCacheBuild(env, `rota:${nome}`, JSON.stringify(principal)).catch(ignorar("builds"));
         if (principal !== palpite) {
           dados = await pedir(principal);
           rotaFinal = principal;
@@ -445,13 +446,13 @@ export async function buscarCounters(env, campeao, rota) {
       fortes: confrontos(dados?.strong_counters).sort((a, b) => b.taxa - a.taxa),
       fracos: confrontos(dados?.weak_counters).sort((a, b) => a.taxa - b.taxa),
     };
-    await salvarCacheBuild(env, `counter:${nome}:${rotaFinal}`, JSON.stringify(resultado)).catch(() => {});
-    await salvarEstado(env, "opgg_erro", "").catch(() => {});
+    await salvarCacheBuild(env, `counter:${nome}:${rotaFinal}`, JSON.stringify(resultado)).catch(ignorar("builds"));
+    await salvarEstado(env, "opgg_erro", "").catch(ignorar("builds"));
     return resultado;
   } catch (err) {
     console.log(`OP.GG (counters) falhou para ${nome}:`, err.message);
-    await salvarEstado(env, "opgg_erro", String(err.message).slice(0, 300)).catch(() => {});
-    await salvarEstado(env, "opgg_erro_em", new Date().toISOString()).catch(() => {});
+    await salvarEstado(env, "opgg_erro", String(err.message).slice(0, 300)).catch(ignorar("builds"));
+    await salvarEstado(env, "opgg_erro_em", new Date().toISOString()).catch(ignorar("builds"));
     if (cache.valor) return cache.valor;
     throw err;
   }

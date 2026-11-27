@@ -2,6 +2,7 @@
 // Discord, páginas de build) e os crons — o de 15 minutos confere patch novo
 // e notícias; o de 2 minutos sobe os ícones do /build como emojis.
 
+import { ignorar } from "./log.js";
 import {
   TIPO_INTERACAO,
   RESPOSTA,
@@ -98,7 +99,7 @@ import {
 import { traduzirParaPtBr } from "./traducao.js";
 import { buscarNoticias, mensagemDaNoticia } from "./noticias.js";
 import { buscarNotas, mensagemDoPatch, camadasDaArte, FUNDO_PERMITIDO } from "./patchnotes.js";
-import { FLAG_V2 } from "./visual.js";
+import { comCargo, ehRobo, caminhoParaContar, origemDaVisita } from "./regras.js";
 
 // Os dois crons do wrangler.jsonc. O texto tem que bater exatamente com o de
 // lá — é por ele que o scheduled sabe qual dos dois disparou.
@@ -151,7 +152,7 @@ async function tratarInteracao(interacao, env, ctx, origin) {
     if (COMANDOS_LIMITADOS.has(interacao.data.name) && env.LIMITE_COMANDOS) {
       const { success } = await env.LIMITE_COMANDOS.limit({ key: interacao.guild_id });
       if (!success) {
-        ctx.waitUntil(registrarEvento(env, "limite_atingido").catch(() => {}));
+        ctx.waitUntil(registrarEvento(env, "limite_atingido").catch(ignorar("index")));
         ctx.waitUntil(avisarLimiteAtingido(env, interacao.guild_id).catch((err) => console.log("Aviso de limite:", err.message)));
         return json({
           type: RESPOSTA.MENSAGEM,
@@ -327,112 +328,6 @@ async function enfileirar(env, configs, canalDe, mensagens, funcao, { substituir
   return linhas.length;
 }
 
-// Limpeza pontual dos posts de promoção repetidos que saíram antes de existir
-// a substituição (ver migracoes/0014): em cada canal de promoções, apaga os
-// posts do Ward da promoção atual e deixa só o mais recente. Só roda quando
-// pedida (bot_state "limpeza_promo_pedida" = "todos" ou o id de um servidor,
-// para testar antes) e vai de 3 em 3 servidores por rodada do cron de 2
-// minutos, para caber no limite de chamadas.
-const SERVIDORES_POR_LIMPEZA = 3;
-
-function ehPostDePromocao(m) {
-  const embed = m.embeds?.[0]?.title ?? "";
-  return /Skins em promoção/i.test(embed) || JSON.stringify(m.components ?? []).includes("Skins em promoção na loja");
-}
-
-async function limparPromocoesRepetidas(env) {
-  const pedida = await pegarEstado(env, "limpeza_promo_pedida");
-  if (!pedida) return { nada: true };
-  const assinatura = (await pegarEstado(env, "promocoes_assinatura")) ?? "";
-  const termina = assinatura.split("@")[1];
-  if (!termina) return { erro: "sem promoção atual" };
-  const inicio = new Date(new Date(termina).getTime() - 7 * 86400000);
-  const grupo = `promo:${termina}`;
-
-  const feitos = new Set(JSON.parse((await pegarEstado(env, "limpeza_promo_feitos")) ?? "[]"));
-  const alvos = (await listarComAvisoLigado(env, "promocoes"))
-    .filter((c) => c.canal_do_aviso && !feitos.has(c.guild_id))
-    .filter((c) => pedida === "todos" || c.guild_id === pedida)
-    .slice(0, SERVIDORES_POR_LIMPEZA);
-
-  const relatorio = [];
-  for (const c of alvos) {
-    let apagados = 0;
-    try {
-      const mensagens = await api(env, `/channels/${c.canal_do_aviso}/messages?limit=50`);
-      const promos = mensagens
-        .filter((m) => m.author?.id === env.DISCORD_CLIENT_ID && ehPostDePromocao(m) && new Date(m.timestamp) >= inicio)
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      const [maisRecente, ...repetidos] = promos;
-      for (const m of repetidos.slice(0, 10)) {
-        await apagarMensagem(env, c.canal_do_aviso, m.id);
-        apagados++;
-      }
-      if (maisRecente) {
-        await env.DB.prepare(
-          `INSERT INTO ultimas_mensagens (guild_id, funcao, grupo, canal_id, mensagem_id) VALUES (?, 'promocoes', ?, ?, ?)
-           ON CONFLICT(guild_id, funcao) DO UPDATE SET grupo = excluded.grupo, canal_id = excluded.canal_id, mensagem_id = excluded.mensagem_id`
-        )
-          .bind(c.guild_id, grupo, c.canal_do_aviso, maisRecente.id)
-          .run();
-      }
-      relatorio.push({ servidor: c.guild_id, achados: promos.length, apagados });
-    } catch (err) {
-      relatorio.push({ servidor: c.guild_id, apagados, erro: err.message.slice(0, 120) });
-    }
-    feitos.add(c.guild_id);
-  }
-  await salvarEstado(env, "limpeza_promo_feitos", JSON.stringify([...feitos]));
-  const anterior = JSON.parse((await pegarEstado(env, "limpeza_promo_relatorio")) ?? "[]");
-  await salvarEstado(env, "limpeza_promo_relatorio", JSON.stringify([...anterior, ...relatorio]));
-  if (!alvos.length) await salvarEstado(env, "limpeza_promo_pedida", "");
-  return { relatorio };
-}
-
-// Repost pontual do aviso de patch no visual novo: em cada servidor com o
-// aviso de patch ligado, apaga os posts do Ward sobre ESTE patch (o antigo,
-// de embed, e testes) e posta o novo. Só roda quando pedido (bot_state
-// "repost_patch_pedido" = "todos" ou o id de um servidor) e vai de 3 em 3
-// servidores por rodada do cron de 2 minutos.
-async function repostarPatch(env) {
-  const pedido = await pegarEstado(env, "repost_patch_pedido");
-  if (!pedido) return { nada: true };
-  const { versao, corpo } = await construirEmbedPatch(env);
-  const numero = versaoPublica(versao).split(".").slice(0, 2).join(".");
-  const ehDestePatch = (m) =>
-    m.author?.id === env.DISCORD_CLIENT_ID &&
-    (new RegExp(`patch ${numero.replace(".", "\\.")}`, "i").test(m.embeds?.[0]?.title ?? "") ||
-      JSON.stringify(m.components ?? []).includes(`Patch ${numero}`));
-
-  const feitos = new Set(JSON.parse((await pegarEstado(env, "repost_patch_feitos")) ?? "[]"));
-  const alvos = (await listarPatchAtivo(env))
-    .filter((c) => c.patch_channel_id && !feitos.has(c.guild_id))
-    .filter((c) => pedido === "todos" || c.guild_id === pedido)
-    .slice(0, SERVIDORES_POR_LIMPEZA);
-
-  const relatorio = [];
-  for (const c of alvos) {
-    let apagados = 0;
-    try {
-      const mensagens = await api(env, `/channels/${c.patch_channel_id}/messages?limit=50`);
-      for (const m of mensagens.filter(ehDestePatch).slice(0, 5)) {
-        await apagarMensagem(env, c.patch_channel_id, m.id);
-        apagados++;
-      }
-      await enviarMensagem(env, c.patch_channel_id, corpo);
-      relatorio.push({ servidor: c.guild_id, apagados, postado: true });
-    } catch (err) {
-      relatorio.push({ servidor: c.guild_id, apagados, erro: err.message.slice(0, 120) });
-    }
-    feitos.add(c.guild_id);
-  }
-  await salvarEstado(env, "repost_patch_feitos", JSON.stringify([...feitos]));
-  const anterior = JSON.parse((await pegarEstado(env, "repost_patch_relatorio")) ?? "[]");
-  await salvarEstado(env, "repost_patch_relatorio", JSON.stringify([...anterior, ...relatorio]));
-  if (!alvos.length) await salvarEstado(env, "repost_patch_pedido", "");
-  return { relatorio };
-}
-
 // Coluna do cargo a marcar de cada tipo de aviso (ver migracoes/0016).
 const COLUNA_CARGO = {
   patch: "patch_role_id",
@@ -441,18 +336,6 @@ const COLUNA_CARGO = {
   skins: "skins_role_id",
   youtube: "youtube_role_id",
 };
-
-// Põe a menção do cargo no começo da mensagem e libera só aquele cargo para
-// ser marcado (todo o resto continua sem marcar ninguém — ver semMencoes).
-// No layout novo a menção vai num texto antes do bloco colorido.
-function comCargo(corpo, cargoId) {
-  if (!cargoId || !/^\d{5,25}$/.test(cargoId)) return corpo;
-  const mencoes = { parse: [], roles: [cargoId] };
-  if (corpo.flags & FLAG_V2) {
-    return { ...corpo, components: [{ type: 10, content: `<@&${cargoId}>` }, ...corpo.components], allowed_mentions: mencoes };
-  }
-  return { ...corpo, content: `<@&${cargoId}>${corpo.content ? ` ${corpo.content}` : ""}`, allowed_mentions: mencoes };
-}
 
 // Erro que tentar de novo não resolve: o Discord recusou o conteúdo (400),
 // o bot não tem permissão (403/50013/50001) ou o canal sumiu (404).
@@ -511,7 +394,7 @@ async function drenarFila(env, limite) {
       console.log(`Falha ao enviar para ${envio.guild_id}:`, err.message);
       if (ERRO_DEFINITIVO.test(err.message) || envio.tentativas >= 2) {
         remover.push(envio.id);
-        await registrarErroEnvio(env, envio.guild_id, envio.funcao, err.message).catch(() => {});
+        await registrarErroEnvio(env, envio.guild_id, envio.funcao, err.message).catch(ignorar("index"));
       } else {
         await env.DB.prepare("UPDATE envios_pendentes SET tentativas = tentativas + 1 WHERE id = ?")
           .bind(envio.id)
@@ -559,7 +442,7 @@ async function construirEmbedPatch(env) {
     const guardado = await pegarEstado(env, chave);
     if (guardado) return { versao, corpo: JSON.parse(guardado) };
     const corpo = mensagemDoPatch(versao, await buscarNotas(versao));
-    await salvarEstado(env, chave, JSON.stringify(corpo)).catch(() => {});
+    await salvarEstado(env, chave, JSON.stringify(corpo)).catch(ignorar("index"));
     return { versao, corpo };
   } catch (err) {
     console.log("Post completo do patch indisponível, usando o simples:", err.message);
@@ -633,7 +516,7 @@ async function checarNoticias(env, apenasGuild) {
         .reverse()
         .map((n) => ({ titulo: n.titulo, categoria: n.categoria, data: n.data, imagem: n.imagem, url: n.url }))
     )
-  ).catch(() => {});
+  ).catch(ignorar("index"));
 
   const todos = await listarNoticiasAtiva(env);
   const alvos = (apenasGuild ? todos.filter((c) => c.guild_id === apenasGuild) : todos).filter(
@@ -767,10 +650,10 @@ async function checarPromocoes(env, apenasGuild) {
     env,
     "vitrine_promocoes",
     JSON.stringify(lista.slice(0, 4).map((s) => ({ nome: s.nome, img: s.arquivoCampeao, skinId: s.skinId, desconto: s.desconto })))
-  ).catch(() => {});
+  ).catch(ignorar("index"));
 
   // Lista inteira para a página /promocoes do site.
-  await salvarEstado(env, "promocoes_atuais", JSON.stringify(dadosDaPaginaDePromocoes(lista))).catch(() => {});
+  await salvarEstado(env, "promocoes_atuais", JSON.stringify(dadosDaPaginaDePromocoes(lista))).catch(ignorar("index"));
 
   const anterior = await pegarEstado(env, "promocoes_assinatura");
   if (!apenasGuild && (!anterior || anterior === assinatura)) {
@@ -813,7 +696,7 @@ async function postarSkinsNovas(env) {
     await salvarEstado(env, "skins_para_postar", "[]");
     return { nada: true };
   }
-  await salvarEstado(env, "vitrine_skins", JSON.stringify(fila.slice(0, 4))).catch(() => {});
+  await salvarEstado(env, "vitrine_skins", JSON.stringify(fila.slice(0, 4))).catch(ignorar("index"));
   const alvos = await listarComAvisoLigado(env, "skins");
   await enfileirar(env, alvos, (c) => c.canal_do_aviso, mensagens, "skins");
   // Esvazia antes de qualquer outra coisa poder falhar: repetir o anúncio em
@@ -826,7 +709,7 @@ const MAXIMO_VIDEOS_POR_RODADA = 3;
 
 async function checarYoutube(env, apenasGuild) {
   const videos = await buscarVideos(env);
-  await salvarEstado(env, "vitrine_youtube", JSON.stringify(videos[0])).catch(() => {});
+  await salvarEstado(env, "vitrine_youtube", JSON.stringify(videos[0])).catch(ignorar("index"));
 
   let vistos = null;
   try {
@@ -1009,17 +892,6 @@ async function registrarComandosSeMudaram(env) {
 // 4. O dono do bot não conta: abrir o /admin/uso deixa um cookie no aparelho
 //    que tira aquele navegador da contagem.
 
-const NAVEGADOR_ROBO =
-  /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|telegram|discord|embed|monitor|curl|wget|python|headless|lighthouse|httpclient|java\/|go-http|axios|node-fetch|powershell|scrapy|phantom|selenium|puppeteer|playwright/i;
-const REDE_DE_DATA_CENTER =
-  /amazon|aws|google cloud|google llc|microsoft|azure|digitalocean|ovh|hetzner|linode|akamai|oracle|alibaba|tencent|contabo|vultr|choopa|scaleway|leaseweb|m247|datacamp|cloudflare|hostinger|hostgator|locaweb|kinghost|fastly|zenlayer|psychz|colocrossing|servers\.com|hosting|data ?cent(er|re)/i;
-
-function ehRobo(request) {
-  const navegador = request.headers.get("User-Agent") ?? "";
-  if (!navegador || NAVEGADOR_ROBO.test(navegador)) return true;
-  return REDE_DE_DATA_CENTER.test(request.cf?.asOrganization ?? "");
-}
-
 const COOKIE_DONO = "ward_dono";
 
 // Código da pessoa: hash de IP + segredo. Sem o segredo não dá para
@@ -1031,43 +903,6 @@ async function codigoDaPessoa(request, env) {
     .slice(0, 12)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-// Só páginas que existem entram na conta (o aviso vem do navegador, então
-// qualquer um poderia mandar um caminho inventado). /build/Fizz fica como
-// está para dar para ver quais campeões são vistos.
-function caminhoParaContar(caminho) {
-  if (typeof caminho !== "string") return null;
-  if (/^\/dashboard\/\d+/.test(caminho)) return "/dashboard/servidor";
-  if (/^\/build\/[A-Za-z]{2,20}$/.test(caminho)) return caminho;
-  return ["/", "/build", "/promocoes", "/dashboard", "/privacidade", "/termos"].includes(caminho) ? caminho : null;
-}
-
-// Por onde a pessoa chegou. Primeiro vale a etiqueta do link
-// (wardbot.com.br/?ref=tiktok) — é o único jeito de saber de onde vem quem
-// clica dentro do app do Discord, que não diz de onde a pessoa veio. Sem
-// etiqueta, usa o site anterior (Referer), agrupado do jeito que interessa.
-function origemDaVisita(busca, referer) {
-  const etiqueta = /[?&](?:ref|utm_source)=([a-z0-9._-]{1,30})/i.exec(busca ?? "");
-  if (etiqueta) return etiqueta[1].toLowerCase();
-  if (!referer) return "direto";
-  try {
-    const dominio = new URL(referer).hostname.replace(/^(www|m|l|lm)\./, "");
-    if (dominio === new URL(SITE).hostname || dominio.endsWith("workers.dev")) return "direto";
-    if (/(^|\.)google\./.test(dominio)) return "google";
-    if (/(^|\.)bing\.com$/.test(dominio)) return "bing";
-    if (/duckduckgo\.com$/.test(dominio)) return "duckduckgo";
-    if (/discord(app)?\.com$/.test(dominio)) return "discord";
-    if (/(^|\.)t\.co$|(^|\.)x\.com$|twitter\.com$/.test(dominio)) return "x (twitter)";
-    if (/youtube\.com$|youtu\.be$/.test(dominio)) return "youtube";
-    if (/facebook\.com$/.test(dominio)) return "facebook";
-    if (/instagram\.com$/.test(dominio)) return "instagram";
-    if (/tiktok\.com$/.test(dominio)) return "tiktok";
-    if (/reddit\.com$/.test(dominio)) return "reddit";
-    return dominio.slice(0, 40);
-  } catch {
-    return "direto";
-  }
 }
 
 // Recebe o aviso "esta página foi vista" mandado pela própria página.
@@ -1132,20 +967,15 @@ async function rotear(request, env, ctx) {
 
 
     // Painel de acompanhamento: onde o bot está, o que cada servidor ligou e
-    // quantas vezes os comandos foram usados. Só leitura, protegido pela mesma
-    // chave das outras rotas de administração.
+    // quantas vezes os comandos foram usados. Só abre logado com a conta dona
+    // do bot. (Antes também abria com ?chave= na URL — tirado porque URL fica
+    // em histórico do navegador e em log, e a chave vazaria junto.)
     if (url.pathname === "/admin/uso") {
-      // Dois caminhos: a chave na URL (para testes e scripts) ou estar logado
-      // com a conta dona do bot — assim dá para chegar aqui só clicando, sem
-      // passar a chave de mão em mão.
-      const chave = (env.SETUP_KEY ?? "").trim();
-      const temChave = chave && url.searchParams.get("chave") === chave;
-      if (!temChave) {
-        const sessao = await pegarSessao(env, request);
-        const dono = await idDoDono(env);
-        if (!sessao || !dono || sessao.usuario_id !== dono) {
-          return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
-        }
+      const temChave = false;
+      const sessao = await pegarSessao(env, request);
+      const dono = await idDoDono(env);
+      if (!sessao || !dono || sessao.usuario_id !== dono) {
+        return new Response("Essa página é só para quem cuida do bot.", { status: 401 });
       }
       const [servidores, configs, uso, opggErro, opggErroEm, buildsEmCache, emojisCompletos, avisosAoDono, estatisticas, usoRecente] =
         await Promise.all([
@@ -1170,7 +1000,7 @@ async function rotear(request, env, ctx) {
           env,
           servidores.length,
           servidores.reduce((t, g) => t + (g.approximate_member_count ?? 0), 0)
-        ).catch(() => {})
+        ).catch(ignorar("index"))
       );
       // A saúde da fonte das builds não é de nenhum servidor em particular,
       // então entra aqui como estado global do bot. O "Avisar o dono" só
@@ -1228,7 +1058,7 @@ async function rotear(request, env, ctx) {
           env.DB.prepare("DELETE FROM guild_config WHERE guild_id = ?").bind(guildId),
           env.DB.prepare("DELETE FROM envios_pendentes WHERE guild_id = ?").bind(guildId),
         ]).catch((err) => console.log(`Saí de ${guildId}, mas não limpei os dados:`, err.message));
-        ctx.waitUntil(registrarEvento(env, "saida_pelo_painel").catch(() => {}));
+        ctx.waitUntil(registrarEvento(env, "saida_pelo_painel").catch(ignorar("index")));
       } catch (err) {
         console.log(`Falha ao sair de ${guildId}:`, err.message);
         resultado = "erro_saida";
@@ -1297,8 +1127,8 @@ async function rotear(request, env, ctx) {
           if (resultado === "erro") resultado = "sem_onde";
         }
         if (resultado !== "sem_onde") {
-          await salvarEstado(env, `aviso_dono_${guildId}`, new Date().toISOString()).catch(() => {});
-          ctx.waitUntil(registrarUsoComando(env, guildId, "painel:aviso-ao-dono").catch(() => {}));
+          await salvarEstado(env, `aviso_dono_${guildId}`, new Date().toISOString()).catch(ignorar("index"));
+          ctx.waitUntil(registrarUsoComando(env, guildId, "painel:aviso-ao-dono").catch(ignorar("index")));
         }
       } catch (err) {
         falhas.push(motivoDiscord(err));
@@ -1396,7 +1226,7 @@ async function rotear(request, env, ctx) {
         dados = await buscarPromocoes(env)
           .then(dadosDaPaginaDePromocoes)
           .catch(() => null);
-        if (dados?.lista?.length) await salvarEstado(env, "promocoes_atuais", JSON.stringify(dados)).catch(() => {});
+        if (dados?.lista?.length) await salvarEstado(env, "promocoes_atuais", JSON.stringify(dados)).catch(ignorar("index"));
       }
       return paginaHtml("Skins em promoção no LoL esta semana — Ward", paginaPromocoes(dados), {
         caminho: "/promocoes",
@@ -1486,8 +1316,8 @@ async function rotear(request, env, ctx) {
       const resposta = await tratarCallback(env, request, origin);
       // Login que deu certo termina em redirecionamento para o painel.
       if (resposta.status === 302) {
-        ctx.waitUntil(registrarEvento(env, "login").catch(() => {}));
-        ctx.waitUntil(codigoDaPessoa(request, env).then((h) => marcarPessoa(env, h, "entrou")).catch(() => {}));
+        ctx.waitUntil(registrarEvento(env, "login").catch(ignorar("index")));
+        ctx.waitUntil(codigoDaPessoa(request, env).then((h) => marcarPessoa(env, h, "entrou")).catch(ignorar("index")));
       }
       return resposta;
     }
@@ -1528,8 +1358,8 @@ async function rotear(request, env, ctx) {
     // Todo botão "Adicionar ao Discord" do site passa por aqui: conta o
     // clique e segue para a tela de autorização do Discord.
     if (url.pathname === "/convidar" && request.method === "GET") {
-      ctx.waitUntil(registrarEvento(env, "convite").catch(() => {}));
-      ctx.waitUntil(codigoDaPessoa(request, env).then((h) => marcarPessoa(env, h, "convidou")).catch(() => {}));
+      ctx.waitUntil(registrarEvento(env, "convite").catch(ignorar("index")));
+      ctx.waitUntil(codigoDaPessoa(request, env).then((h) => marcarPessoa(env, h, "convidou")).catch(ignorar("index")));
       return new Response(null, {
         status: 302,
         headers: {
@@ -1636,7 +1466,7 @@ async function rotear(request, env, ctx) {
           // Marca pra este servidor, pra verificação automática não repetir.
           await marcarNoticiaPostada(env, guildId, noticia.url);
           ctx.waitUntil(
-            registrarUsoComando(env, guildId, "painel:postar-noticia").catch(() => {})
+            registrarUsoComando(env, guildId, "painel:postar-noticia").catch(ignorar("index"))
           );
         } catch (err) {
           console.log("Falha ao postar notícia escolhida:", err.message);
@@ -1780,10 +1610,6 @@ export default {
           // Fila de avisos primeiro: é o que tem gente esperando.
           const fila = await drenarFila(env, 30).catch((err) => ({ erro: err.message }));
           if (fila.enviados || fila.erro) console.log("fila:", JSON.stringify(fila));
-          const limpeza = await limparPromocoesRepetidas(env).catch((err) => ({ erro: err.message }));
-          if (!limpeza.nada) console.log("limpeza de promoções:", JSON.stringify(limpeza));
-          const repost = await repostarPatch(env).catch((err) => ({ erro: err.message }));
-          if (!repost.nada) console.log("repost do patch:", JSON.stringify(repost));
           const emojis = await sincronizarEmojis(env).catch((err) => ({ erro: err.message }));
           if (!emojis.completo) console.log("emojis:", JSON.stringify(emojis));
           // Só trabalha quando sai patch novo (ver varrerSkinsNovas).
@@ -1828,8 +1654,8 @@ export default {
                 .then(() => ({ ok: true }), (err) => ({ erro: err.message }))
             : { pulado: true };
         if (new Date(evento.scheduledTime ?? Date.now()).getUTCHours() === 6 && minuto < 15) {
-          await limparVisitantesAntigos(env).catch(() => {});
-          await limparComandosPorDia(env).catch(() => {});
+          await limparVisitantesAntigos(env).catch(ignorar("index"));
+          await limparComandosPorDia(env).catch(ignorar("index"));
         }
         const comandos = await registrarComandosSeMudaram(env).catch((err) => ({ erro: err.message }));
         const vitrine = await atualizarVitrineBuild(env).catch((err) => ({ erro: err.message }));

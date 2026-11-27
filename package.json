@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy",
+    "test": "node --test",
+    "deploy": "node --test && wrangler deploy",
     "dev": "wrangler dev",
     "banco": "wrangler d1 execute ward-bot --remote --file=schema.sql"
   },

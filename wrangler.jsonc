@@ -47,7 +47,12 @@
     {
       "binding": "DB",
       "database_name": "ward-bot",
-      "database_id": "30ae9568-3748-407c-b823-9c7a853324c7"
+      "database_id": "30ae9568-3748-407c-b823-9c7a853324c7",
+      // Migrações novas: crie o arquivo em migracoes/ e rode
+      // `npx wrangler d1 migrations apply ward-bot --remote`. O wrangler
+      // anota as aplicadas na tabela d1_migrations e nunca roda a mesma duas
+      // vezes (as 16 primeiras foram aplicadas à mão e marcadas lá depois).
+      "migrations_dir": "migracoes"
     }
   ]
 }
