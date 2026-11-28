@@ -63,7 +63,12 @@ export async function assinaturaValida(request, corpoBruto, chavePublica) {
   }
 }
 
-export async function api(env, caminho, opcoes = {}) {
+// Quando o Discord pede calma (429) por pouco tempo, espera o que ele mandou
+// e tenta de novo (até 2 vezes) em vez de quebrar a página. Cliques
+// seguidos no painel (salvar sozinho + postar + recarregar) caíam nisso.
+const ESPERA_MAXIMA_429_MS = 3000;
+
+export async function api(env, caminho, opcoes = {}, tentativa = 0) {
   const res = await fetch(`${API}${caminho}`, {
     ...opcoes,
     headers: {
@@ -72,6 +77,16 @@ export async function api(env, caminho, opcoes = {}) {
       ...(opcoes.headers ?? {}),
     },
   });
+
+  if (res.status === 429 && tentativa < 2) {
+    const corpo = await res.json().catch(() => ({}));
+    const esperaMs = Math.ceil(Number(corpo.retry_after ?? res.headers.get("Retry-After") ?? 1) * 1000);
+    if (esperaMs <= ESPERA_MAXIMA_429_MS) {
+      await new Promise((r) => setTimeout(r, esperaMs + 50));
+      return api(env, caminho, opcoes, tentativa + 1);
+    }
+    throw new Error(`Discord ${opcoes.method ?? "GET"} ${caminho} -> 429 ${JSON.stringify(corpo)}`);
+  }
 
   if (!res.ok) {
     throw new Error(
@@ -133,7 +148,22 @@ export function json(data, status = 200) {
 // checando servidor a servidor.
 // with_counts traz o número aproximado de membros de cada servidor, usado na
 // página de acompanhamento de uso.
+// Fica 30 segundos em memória: cada clique no painel precisa dessa lista
+// (para saber se a pessoa administra o servidor), e pedir de novo a cada
+// clique estourava o limite do Discord.
+const VALIDADE_SERVIDORES_MS = 30_000;
+let servidoresEmCache = null;
+let servidoresValidosAte = 0;
+
 export async function listarServidoresDoBot(env) {
+  if (servidoresEmCache && Date.now() < servidoresValidosAte) return servidoresEmCache;
+  const lista = await buscarServidoresDoBot(env);
+  servidoresEmCache = lista;
+  servidoresValidosAte = Date.now() + VALIDADE_SERVIDORES_MS;
+  return lista;
+}
+
+async function buscarServidoresDoBot(env) {
   const servidores = [];
   let after = "0";
   for (;;) {
@@ -207,6 +237,7 @@ export async function apagarMensagem(env, canalId, mensagemId) {
 // "Servidor desconhecido" (10004) quer dizer que o bot já não está lá —
 // conta como saída feita.
 export async function sairDoServidor(env, guildId) {
+  servidoresEmCache = null; // a lista em memória deixa de valer
   const res = await fetch(`${API}/users/@me/guilds/${guildId}`, {
     method: "DELETE",
     headers: { Authorization: `Bot ${(env.DISCORD_TOKEN ?? "").trim()}` },
